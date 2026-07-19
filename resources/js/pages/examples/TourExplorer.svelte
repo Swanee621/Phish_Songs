@@ -20,6 +20,7 @@
     import SetlistView from '@/components/phishnet/SetlistView.svelte';
     import { Badge } from '@/components/ui/badge';
     import { Button } from '@/components/ui/button';
+    import { Checkbox } from '@/components/ui/checkbox';
     import {
         Dialog,
         DialogContent,
@@ -27,6 +28,7 @@
         DialogFooter,
         DialogTitle
     } from '@/components/ui/dialog';
+    import { Label } from '@/components/ui/label';
     import type { SetlistRow, ShowYear, Song } from '@/types/phishnet';
 
     type ViewMode = 'played' | 'not-played';
@@ -51,6 +53,7 @@
         tourid: number;
         minTimesPlayed: number;
         viewMode: ViewMode;
+        onlyPhishSongs: boolean;
     };
 
     const PREFS_COOKIE_NAME = 'tour-explorer-prefs';
@@ -117,6 +120,11 @@
         typeof savedPrefs?.minTimesPlayed === 'number'
             ? savedPrefs.minTimesPlayed
             : 5
+    );
+    let onlyPhishSongs = $state(
+        typeof savedPrefs?.onlyPhishSongs === 'boolean'
+            ? savedPrefs.onlyPhishSongs
+            : true
     );
 
     const yearData = new SvelteMap<number, SetlistRow[]>();
@@ -207,7 +215,7 @@
         return allSongs
             .filter(
                 (song) =>
-                    song.artist === 'Phish' &&
+                    (!onlyPhishSongs || song.artist === 'Phish') &&
                     song.times_played >= minTimesPlayed &&
                     !playedSlugs.has(song.slug) &&
                     !excludedSet.has(song.slug)
@@ -448,12 +456,13 @@
             year: currentYear,
             tourid: selectedTour.tourid,
             minTimesPlayed,
-            viewMode
+            viewMode,
+            onlyPhishSongs
         });
     });
 </script>
 
-<AppHead title="Song Explorer" />
+<AppHead />
 
 <div class="flex h-full flex-1 flex-col gap-4 p-4">
     <div>
@@ -618,7 +627,7 @@
                         Loading full song catalog…
                     </p>
                 {:else}
-                    <div class="mt-3 flex items-center gap-3">
+                    <div class="mt-3 flex flex-wrap items-center gap-3">
                         <label
                             for="min-times-played"
                             class="shrink-0 text-xs text-muted-foreground"
@@ -639,6 +648,19 @@
                         >
                             {minTimesPlayed}+ times
                         </span>
+
+                        <div class="flex items-center gap-2">
+                            <Checkbox
+                                id="only-phish-songs"
+                                bind:checked={onlyPhishSongs}
+                            />
+                            <Label
+                                for="only-phish-songs"
+                                class="text-xs font-normal text-muted-foreground"
+                            >
+                                Only Phish Songs
+                            </Label>
+                        </div>
                     </div>
 
                     <div

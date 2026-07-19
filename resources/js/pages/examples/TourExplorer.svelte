@@ -641,7 +641,7 @@
                             id="min-times-played"
                             type="range"
                             min="0"
-                            max="650"
+                            max="150"
                             step="5"
                             bind:value={minTimesPlayed}
                             class="w-full max-w-52 accent-primary"

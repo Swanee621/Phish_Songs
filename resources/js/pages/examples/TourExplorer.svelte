@@ -46,6 +46,52 @@
         last: string;
     };
 
+    type StoredPrefs = {
+        year: number;
+        tourid: number;
+        minTimesPlayed: number;
+        viewMode: ViewMode;
+    };
+
+    const PREFS_COOKIE_NAME = 'tour-explorer-prefs';
+    const PREFS_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
+
+    function readPrefsCookie(): Partial<StoredPrefs> | null {
+        if (typeof document === 'undefined') {
+            return null;
+        }
+
+        const match = document.cookie
+            .split('; ')
+            .find((row) => row.startsWith(`${PREFS_COOKIE_NAME}=`));
+
+        if (!match) {
+            return null;
+        }
+
+        try {
+            const parsed: unknown = JSON.parse(
+                decodeURIComponent(match.slice(PREFS_COOKIE_NAME.length + 1))
+            );
+
+            return typeof parsed === 'object' && parsed !== null ? parsed : null;
+        } catch {
+            return null;
+        }
+    }
+
+    function writePrefsCookie(prefs: StoredPrefs) {
+        if (typeof document === 'undefined') {
+            return;
+        }
+
+        document.cookie = `${PREFS_COOKIE_NAME}=${encodeURIComponent(
+            JSON.stringify(prefs)
+        )}; path=/; max-age=${PREFS_COOKIE_MAX_AGE}`;
+    }
+
+    const savedPrefs = readPrefsCookie();
+
     let { excludedSongs = [] }: { excludedSongs?: string[] } = $props();
 
     let years = $state<number[]>([]);
@@ -53,7 +99,9 @@
     let initialLoading = $state(true);
     let loadingYear = $state(false);
     let showFullSetlists = $state(false);
-    let viewMode = $state<ViewMode>('not-played');
+    let viewMode = $state<ViewMode>(
+        savedPrefs?.viewMode === 'played' ? 'played' : 'not-played'
+    );
 
     let currentYear = $state<number | null>(null);
     let currentTours = $state<Tour[]>([]);
@@ -65,7 +113,11 @@
     let dialogOpen = $state(false);
     let dialogSlug = $state<string | null>(null);
 
-    let minTimesPlayed = $state(50);
+    let minTimesPlayed = $state(
+        typeof savedPrefs?.minTimesPlayed === 'number'
+            ? savedPrefs.minTimesPlayed
+            : 5
+    );
 
     const yearData = new SvelteMap<number, SetlistRow[]>();
 
@@ -260,7 +312,8 @@
     function selectYear(
         year: number,
         which: 'first' | 'last',
-        allowFallback = false
+        allowFallback = false,
+        preferredTourId?: number
     ) {
         loadYear(year, () => {
             const tours = buildToursForYear(year);
@@ -271,18 +324,25 @@
                     which === 'last' ? yearPos - 1 : yearPos + 1;
 
                 if (fallbackPos >= 0 && fallbackPos < years.length) {
-                    selectYear(years[fallbackPos], which, true);
+                    selectYear(years[fallbackPos], which, true, preferredTourId);
                 }
 
                 return;
             }
 
+            const preferredIndex =
+                preferredTourId !== undefined
+                    ? tours.findIndex((tour) => tour.tourid === preferredTourId)
+                    : -1;
+
             currentYear = year;
             currentTours = tours;
             tourIndex =
-                which === 'first'
-                    ? 0
-                    : mostRecentTourIndex(tours, yearData.get(year) ?? []);
+                preferredIndex !== -1
+                    ? preferredIndex
+                    : which === 'first'
+                        ? 0
+                        : mostRecentTourIndex(tours, yearData.get(year) ?? []);
         });
     }
 
@@ -348,7 +408,21 @@
                 yearsLoaded = true;
 
                 if (years.length) {
-                    selectYear(years[years.length - 1], 'last', true);
+                    const preferredYear = savedPrefs?.year;
+                    const yearToSelect =
+                        typeof preferredYear === 'number' &&
+                        years.includes(preferredYear)
+                            ? preferredYear
+                            : years[years.length - 1];
+
+                    selectYear(
+                        yearToSelect,
+                        'last',
+                        true,
+                        typeof savedPrefs?.tourid === 'number'
+                            ? savedPrefs.tourid
+                            : undefined
+                    );
                 }
 
                 initialLoading = false;
@@ -362,6 +436,19 @@
                 allSongs = response.data;
                 allSongsLoading = false;
             }
+        });
+    });
+
+    $effect(() => {
+        if (currentYear === null || !selectedTour) {
+            return;
+        }
+
+        writePrefsCookie({
+            year: currentYear,
+            tourid: selectedTour.tourid,
+            minTimesPlayed,
+            viewMode
         });
     });
 </script>
@@ -511,7 +598,7 @@
                                 <button
                                     type="button"
                                     onclick={() => openSongDialog(row.slug)}
-                                    class="flex items-baseline justify-between gap-2 rounded px-1.5 py-1 text-left text-sm hover:bg-accent hover:text-primary"
+                                    class="flex items-baseline cursor-pointer justify-between gap-2 rounded p-3 text-left text-sm hover:bg-accent hover:text-primary"
                                 >
                                     <span class="truncate">{row.song}</span>
                                     <span
@@ -543,7 +630,7 @@
                             type="range"
                             min="0"
                             max="650"
-                            step="10"
+                            step="5"
                             bind:value={minTimesPlayed}
                             class="w-full max-w-52 accent-primary"
                         />
@@ -561,7 +648,7 @@
                             <button
                                 type="button"
                                 onclick={() => openSongDialog(song.slug)}
-                                class="truncate rounded px-1.5 py-1 text-left text-sm text-muted-foreground hover:bg-accent hover:text-primary"
+                                class="truncate rounded cursor-pointer p-3 text-left text-sm text-muted-foreground hover:bg-accent hover:text-primary"
                             >
                                 {song.song}
                             </button>
@@ -603,7 +690,7 @@
     <DialogContent class="max-h-[85vh] max-w-2xl overflow-y-auto">
         <DialogTitle>{dialogSongName}</DialogTitle>
         <DialogDescription>
-            Every field the Phish.net API returns for this song.
+            All the data!
         </DialogDescription>
 
         {#if dialogCatalogEntry}

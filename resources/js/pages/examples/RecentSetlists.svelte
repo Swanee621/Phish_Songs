@@ -8,6 +8,7 @@
 
 <script lang="ts">
     import { useHttp } from '@inertiajs/svelte';
+    import { onMount } from 'svelte';
     import { SvelteMap } from 'svelte/reactivity';
     import { currentYearSetlists } from '@/actions/App/Http/Controllers/PhishNetExamplesController';
     import AppHead from '@/components/AppHead.svelte';
@@ -19,25 +20,27 @@
 
     const http = useHttp<Record<string, never>, { data: SetlistRow[] }>({});
 
-    http.get(currentYearSetlists.url(), {
-        onSuccess: (response) => {
-            const rows = response.data.filter((row) => row.artistid === 1);
+    onMount(() => {
+        http.get(currentYearSetlists.url(), {
+            onSuccess: (response) => {
+                const rows = response.data.filter((row) => row.artistid === 1);
 
-            const grouped = new SvelteMap<number, SetlistRow[]>();
+                const grouped = new SvelteMap<number, SetlistRow[]>();
 
-            for (const row of rows) {
-                const existing = grouped.get(row.showid);
+                for (const row of rows) {
+                    const existing = grouped.get(row.showid);
 
-                if (existing) {
-                    existing.push(row);
-                } else {
-                    grouped.set(row.showid, [row]);
+                    if (existing) {
+                        existing.push(row);
+                    } else {
+                        grouped.set(row.showid, [row]);
+                    }
                 }
-            }
 
-            shows = [...grouped.values()].reverse();
-            loaded = true;
-        },
+                shows = [...grouped.values()].reverse();
+                loaded = true;
+            },
+        });
     });
 </script>
 
@@ -46,7 +49,9 @@
 <div class="flex h-full flex-1 flex-col gap-4 p-4">
     <div>
         <h1 class="text-2xl font-semibold">Recent Setlists</h1>
-        <p class="text-muted-foreground">Pulling this year's setlists via the Phish.net API</p>
+        <p class="text-muted-foreground">
+            Pulling this year's setlists via the Phish.net API
+        </p>
     </div>
 
     {#if !loaded}

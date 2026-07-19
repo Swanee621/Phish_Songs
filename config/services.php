@@ -38,6 +38,14 @@ return [
     'phishnet' => [
         'key' => env('PHISHNET_API_KEY'),
         'salt' => env('PHISHNET_API_SALT'),
+
+        /*
+         * Song slugs to leave out of the Tour Explorer's played / not-played
+         * counts (e.g. placeholder or non-song setlist entries).
+         */
+        'excluded_songs' => [
+            //
+        ],
     ],
 
 ];

@@ -29,6 +29,13 @@ class PhishNetExamplesController extends Controller
         return Inertia::render('examples/VenueExplorer');
     }
 
+    public function tourExplorer(): Response
+    {
+        return Inertia::render('examples/TourExplorer', [
+            'excludedSongs' => config('services.phishnet.excluded_songs', []),
+        ]);
+    }
+
     public function jamCharts(PhishNetClient $client): JsonResponse
     {
         return response()->json(['data' => $client->jamCharts()]);
@@ -62,6 +69,11 @@ class PhishNetExamplesController extends Controller
     public function venues(PhishNetClient $client): JsonResponse
     {
         return response()->json(['data' => $client->venues()]);
+    }
+
+    public function songs(PhishNetClient $client): JsonResponse
+    {
+        return response()->json(['data' => $client->songs()]);
     }
 
     public function venueShows(PhishNetClient $client, int $venue): JsonResponse

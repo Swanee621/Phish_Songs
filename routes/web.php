@@ -3,7 +3,7 @@
 use App\Http\Controllers\PhishNetExamplesController;
 use Illuminate\Support\Facades\Route;
 
-Route::inertia('/', 'Welcome')->name('home');
+Route::get('/', [PhishNetExamplesController::class, 'tourExplorer'])->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::inertia('dashboard', 'Dashboard')->name('dashboard');
@@ -13,6 +13,7 @@ Route::get('/jam-charts', [PhishNetExamplesController::class, 'jamChartExplorer'
 Route::get('/recent-setlists', [PhishNetExamplesController::class, 'recentSetlists'])->name('recent-setlists');
 Route::get('/setlist-browser', [PhishNetExamplesController::class, 'setlistBrowser'])->name('setlist-browser');
 Route::get('/venues', [PhishNetExamplesController::class, 'venueExplorer'])->name('venues');
+Route::get('/tour-explorer', [PhishNetExamplesController::class, 'tourExplorer'])->name('tour-explorer');
 
 Route::prefix('data')->name('data.')->group(function () {
     Route::get('/jam-charts', [PhishNetExamplesController::class, 'jamCharts'])->name('jam-charts');
@@ -28,6 +29,7 @@ Route::prefix('data')->name('data.')->group(function () {
         ->name('setlists-for-year');
     Route::get('/show-years', [PhishNetExamplesController::class, 'showYears'])->name('show-years');
     Route::get('/venues', [PhishNetExamplesController::class, 'venues'])->name('venues');
+    Route::get('/songs', [PhishNetExamplesController::class, 'songs'])->name('songs');
     Route::get('/venues/{venue}/shows', [PhishNetExamplesController::class, 'venueShows'])
         ->where('venue', '[0-9]+')
         ->name('venue-shows');

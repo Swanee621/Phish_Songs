@@ -27,6 +27,12 @@ test('the venue explorer page renders', function () {
         ->assertInertia(fn (Assert $page) => $page->component('examples/VenueExplorer'));
 });
 
+test('the tour explorer page renders', function () {
+    $this->get(route('tour-explorer'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page->component('examples/TourExplorer'));
+});
+
 test('jam charts data is proxied server-side with the api key attached', function () {
     Http::fake([
         'api.phish.net/v5/jamcharts.json*' => Http::response([
@@ -91,4 +97,43 @@ test('shows for a venue are proxied server-side', function () {
     $this->getJson(route('data.venue-shows', ['venue' => 1]))
         ->assertOk()
         ->assertJsonPath('data.0.showdate', '1997-11-22');
+});
+
+test('the song catalog is proxied server-side', function () {
+    Http::fake([
+        'api.phish.net/v5/songs.json*' => Http::response([
+            'data' => [['slug' => 'tweezer', 'song' => 'Tweezer', 'times_played' => 400]],
+        ]),
+    ]);
+
+    $this->getJson(route('data.songs'))
+        ->assertOk()
+        ->assertJsonPath('data.0.song', 'Tweezer');
+});
+
+test('duplicate songs from the upstream catalog are de-duped by slug', function () {
+    Http::fake([
+        'api.phish.net/v5/songs.json*' => Http::response([
+            'data' => [
+                ['slug' => 'dooley', 'song' => 'Dooley', 'times_played' => 2],
+                ['slug' => 'dooley', 'song' => 'Dooley', 'times_played' => 2],
+                ['slug' => 'tweezer', 'song' => 'Tweezer', 'times_played' => 400],
+            ],
+        ]),
+    ]);
+
+    $this->getJson(route('data.songs'))
+        ->assertOk()
+        ->assertJsonCount(2, 'data');
+});
+
+test('the tour explorer page shares the excluded songs config', function () {
+    config(['services.phishnet.excluded_songs' => ['jam']]);
+
+    $this->get(route('tour-explorer'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('examples/TourExplorer')
+            ->where('excludedSongs', ['jam'])
+        );
 });

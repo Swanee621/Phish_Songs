@@ -12,6 +12,9 @@ export type SetlistRow = {
     slug: string;
     trans_mark: string;
     setlistnotes?: string;
+    tourid: number;
+    tourname: string;
+    tourwhen: string;
 };
 
 export type JamChartSong = {
@@ -46,4 +49,15 @@ export type VenueShow = {
 
 export type ShowYear = {
     showyear: string;
+};
+
+export type Song = {
+    songid: number;
+    song: string;
+    slug: string;
+    artist: string;
+    times_played: number;
+    debut: string;
+    last_played: string;
+    gap: number;
 };

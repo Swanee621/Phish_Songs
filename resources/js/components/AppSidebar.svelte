@@ -1,5 +1,6 @@
 <script lang="ts">
     import { Link } from '@inertiajs/svelte';
+    import BarChart3 from 'lucide-svelte/icons/bar-chart-3';
     import CalendarDays from 'lucide-svelte/icons/calendar-days';
     import Guitar from 'lucide-svelte/icons/guitar';
     import ListMusic from 'lucide-svelte/icons/list-music';
@@ -21,7 +22,7 @@
         SidebarHeader,
     } from '@/components/ui/sidebar';
     import { toUrl } from '@/lib/utils';
-    import { home } from '@/routes';
+    import { home, tourExplorer } from '@/routes';
     import type { NavItem } from '@/types';
 
     let {
@@ -50,6 +51,11 @@
             title: 'Venue Explorer',
             href: venueExplorer(),
             icon: MapPin,
+        },
+        {
+            title: 'Tour Explorer',
+            href: tourExplorer(),
+            icon: BarChart3,
         },
     ];
 </script>

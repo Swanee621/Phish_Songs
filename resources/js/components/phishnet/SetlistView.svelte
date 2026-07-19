@@ -65,7 +65,7 @@
         {/each}
 
         {#if notes}
-            <p class="mt-3 text-sm text-muted-foreground">{notes}</p>
+            <p class="mt-3 text-sm text-muted-foreground">{@html notes}</p>
         {/if}
     </div>
 {/if}

@@ -8,8 +8,13 @@
 
 <script lang="ts">
     import { useHttp } from '@inertiajs/svelte';
+    import { onMount } from 'svelte';
     import { SvelteMap, SvelteSet } from 'svelte/reactivity';
-    import { setlistForDate, setlistsForYear, showYears } from '@/actions/App/Http/Controllers/PhishNetExamplesController';
+    import {
+        setlistForDate,
+        setlistsForYear,
+        showYears,
+    } from '@/actions/App/Http/Controllers/PhishNetExamplesController';
     import AppHead from '@/components/AppHead.svelte';
     import SetlistView from '@/components/phishnet/SetlistView.svelte';
     import { Badge } from '@/components/ui/badge';
@@ -29,26 +34,31 @@
     let notFound = $state(false);
 
     const yearsHttp = useHttp<Record<string, never>, { data: ShowYear[] }>({});
-    const yearShowsHttp = useHttp<Record<string, never>, { data: SetlistRow[] }>({});
+    const yearShowsHttp = useHttp<
+        Record<string, never>,
+        { data: SetlistRow[] }
+    >({});
     const dateHttp = useHttp<Record<string, never>, { data: SetlistRow[] }>({});
 
-    yearsHttp.get(showYears.url(), {
-        onSuccess: (response) => {
-            const seen = new SvelteSet<string>();
-            years = response.data
-                .map((show) => show.showyear)
-                .filter((year) => {
-                    if (seen.has(year)) {
-                        return false;
-                    }
+    onMount(() => {
+        yearsHttp.get(showYears.url(), {
+            onSuccess: (response) => {
+                const seen = new SvelteSet<string>();
+                years = response.data
+                    .map((show) => show.showyear)
+                    .filter((year) => {
+                        if (seen.has(year)) {
+                            return false;
+                        }
 
-                    seen.add(year);
+                        seen.add(year);
 
-                    return true;
-                })
-                .sort((a, b) => Number(b) - Number(a));
-            yearsLoaded = true;
-        },
+                        return true;
+                    })
+                    .sort((a, b) => Number(b) - Number(a));
+                yearsLoaded = true;
+            },
+        });
     });
 
     function loadYear(year: string) {
@@ -107,7 +117,9 @@
 <div class="flex h-full flex-1 flex-col gap-4 p-4">
     <div>
         <h1 class="text-2xl font-semibold">Setlist Browser</h1>
-        <p class="text-muted-foreground">Look up any Phish setlist by date, or browse by year</p>
+        <p class="text-muted-foreground">
+            Look up any Phish setlist by date, or browse by year
+        </p>
     </div>
 
     <form
@@ -118,18 +130,28 @@
         }}
     >
         <Input type="date" bind:value={showdate} />
-        <Button type="submit" disabled={loading}>{loading ? 'Loading…' : 'Load'}</Button>
+        <Button type="submit" disabled={loading}
+            >{loading ? 'Loading…' : 'Load'}</Button
+        >
     </form>
 
     <div>
-        <h2 class="mb-2 text-sm font-semibold text-muted-foreground">Browse by year</h2>
+        <h2 class="mb-2 text-sm font-semibold text-muted-foreground">
+            Browse by year
+        </h2>
         <div class="flex flex-wrap gap-1.5">
             {#if !yearsLoaded}
-                <span class="text-sm text-muted-foreground">Loading years…</span>
+                <span class="text-sm text-muted-foreground">Loading years…</span
+                >
             {:else}
                 {#each years as year (year)}
                     <button type="button" onclick={() => loadYear(year)}>
-                        <Badge variant={selectedYear === year ? 'default' : 'secondary'} class="cursor-pointer">
+                        <Badge
+                            variant={selectedYear === year
+                                ? 'default'
+                                : 'secondary'}
+                            class="cursor-pointer"
+                        >
                             {year}
                         </Badge>
                     </button>
@@ -140,16 +162,30 @@
 
     {#if selectedYear}
         <div>
-            <h2 class="mb-2 text-sm font-semibold text-muted-foreground">Shows in {selectedYear}</h2>
+            <h2 class="mb-2 text-sm font-semibold text-muted-foreground">
+                Shows in {selectedYear}
+            </h2>
             <div class="flex flex-wrap gap-1.5">
                 {#if yearLoading}
-                    <span class="text-sm text-muted-foreground">Loading shows…</span>
+                    <span class="text-sm text-muted-foreground"
+                        >Loading shows…</span
+                    >
                 {:else if !yearShows.length}
-                    <span class="text-sm text-muted-foreground">No shows found.</span>
+                    <span class="text-sm text-muted-foreground"
+                        >No shows found.</span
+                    >
                 {:else}
                     {#each yearShows as show (show[0].showid)}
-                        <button type="button" onclick={() => loadDate(show[0].showdate)}>
-                            <Badge variant={showdate === show[0].showdate ? 'default' : 'secondary'} class="cursor-pointer">
+                        <button
+                            type="button"
+                            onclick={() => loadDate(show[0].showdate)}
+                        >
+                            <Badge
+                                variant={showdate === show[0].showdate
+                                    ? 'default'
+                                    : 'secondary'}
+                                class="cursor-pointer"
+                            >
                                 {show[0].showdate}
                             </Badge>
                         </button>
@@ -163,7 +199,9 @@
         {#if loading}
             <p class="text-sm text-muted-foreground">Loading…</p>
         {:else if notFound}
-            <p class="text-sm text-muted-foreground">No setlist found for {showdate}.</p>
+            <p class="text-sm text-muted-foreground">
+                No setlist found for {showdate}.
+            </p>
         {:else if rows}
             <SetlistView {rows} />
         {/if}

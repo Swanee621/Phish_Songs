@@ -24,9 +24,7 @@ class PhishNetClient
      */
     protected const TTL_LIVE = 60 * 15;
 
-    public function __construct(protected string $apiKey)
-    {
-    }
+    public function __construct(protected string $apiKey) {}
 
     /**
      * @return array<int, array<string, mixed>>
@@ -84,6 +82,23 @@ class PhishNetClient
     public function venues(): array
     {
         return $this->cached('venues', self::TTL_REFERENCE, fn () => $this->get('venues.json'));
+    }
+
+    /**
+     * The full catalog of every song Phish has ever played live.
+     *
+     * The upstream API returns duplicate rows for a handful of songs (same
+     * slug, different permalink), so this de-dupes by slug before caching.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function songs(): array
+    {
+        return $this->cached('songs', self::TTL_REFERENCE, function () {
+            $songs = collect($this->get('songs.json'))->unique('slug')->values();
+
+            return $songs->all();
+        });
     }
 
     /**

@@ -3,17 +3,12 @@
 use App\Http\Controllers\PhishNetExamplesController;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', [PhishNetExamplesController::class, 'tourExplorer'])->name('home');
-
-Route::middleware(['auth', 'verified'])->group(function () {
-    Route::inertia('dashboard', 'Dashboard')->name('dashboard');
-});
+Route::get('/', [PhishNetExamplesController::class, 'songExplorer'])->name('home');
 
 Route::get('/jam-charts', [PhishNetExamplesController::class, 'jamChartExplorer'])->name('jam-charts');
 Route::get('/recent-setlists', [PhishNetExamplesController::class, 'recentSetlists'])->name('recent-setlists');
 Route::get('/setlist-browser', [PhishNetExamplesController::class, 'setlistBrowser'])->name('setlist-browser');
 Route::get('/venues', [PhishNetExamplesController::class, 'venueExplorer'])->name('venues');
-Route::get('/tour-explorer', [PhishNetExamplesController::class, 'tourExplorer'])->name('tour-explorer');
 
 Route::prefix('data')->name('data.')->group(function () {
     Route::get('/jam-charts', [PhishNetExamplesController::class, 'jamCharts'])->name('jam-charts');

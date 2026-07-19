@@ -22,7 +22,7 @@
         SidebarHeader,
     } from '@/components/ui/sidebar';
     import { toUrl } from '@/lib/utils';
-    import { home, tourExplorer } from '@/routes';
+    import { home } from '@/routes';
     import type { NavItem } from '@/types';
 
     let {
@@ -33,19 +33,9 @@
 
     const mainNavItems: NavItem[] = [
         {
-            title: 'Jam Chart Explorer',
-            href: jamChartExplorer(),
-            icon: Guitar,
-        },
-        {
-            title: 'Recent Setlists',
-            href: recentSetlists(),
-            icon: CalendarDays,
-        },
-        {
-            title: 'Setlist Browser',
-            href: setlistBrowser(),
-            icon: ListMusic,
+            title: 'Song Explorer',
+            href: home(),
+            icon: BarChart3,
         },
         {
             title: 'Venue Explorer',
@@ -53,9 +43,19 @@
             icon: MapPin,
         },
         {
-            title: 'Tour Explorer',
-            href: tourExplorer(),
-            icon: BarChart3,
+            title: 'Jam Chart Explorer',
+            href: jamChartExplorer(),
+            icon: Guitar,
+        },
+        {
+            title: 'Setlist Browser',
+            href: setlistBrowser(),
+            icon: ListMusic,
+        },
+        {
+            title: 'Recent Setlists',
+            href: recentSetlists(),
+            icon: CalendarDays,
         },
     ];
 </script>

@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { page } from '@inertiajs/svelte';
     import type { Snippet } from 'svelte';
     import AppSidebarLayout from '@/layouts/app/AppSidebarLayout.svelte';
     import PlainLayout from '@/layouts/app/PlainLayout.svelte';
@@ -6,16 +7,16 @@
 
     let {
         breadcrumbs = [],
-        showSidebar = true,
         children,
     }: {
         breadcrumbs?: BreadcrumbItem[];
-        showSidebar?: boolean;
         children?: Snippet;
     } = $props();
+
+    const sidebarEnabled = $derived(page.props.sidebarEnabled);
 </script>
 
-{#if showSidebar}
+{#if sidebarEnabled}
     <AppSidebarLayout {breadcrumbs}>
         {@render children?.()}
     </AppSidebarLayout>

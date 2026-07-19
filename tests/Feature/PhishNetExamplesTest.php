@@ -28,9 +28,9 @@ test('the venue explorer page renders', function () {
 });
 
 test('the tour explorer page renders', function () {
-    $this->get(route('tour-explorer'))
+    $this->get(route('home'))
         ->assertOk()
-        ->assertInertia(fn (Assert $page) => $page->component('examples/TourExplorer'));
+        ->assertInertia(fn (Assert $page) => $page->component('SongExplorer'));
 });
 
 test('jam charts data is proxied server-side with the api key attached', function () {
@@ -130,10 +130,10 @@ test('duplicate songs from the upstream catalog are de-duped by slug', function 
 test('the tour explorer page shares the excluded songs config', function () {
     config(['services.phishnet.excluded_songs' => ['jam']]);
 
-    $this->get(route('tour-explorer'))
+    $this->get(route('home'))
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
-            ->component('examples/TourExplorer')
+            ->component('SongExplorer')
             ->where('excludedSongs', ['jam'])
         );
 });
@@ -141,10 +141,10 @@ test('the tour explorer page shares the excluded songs config', function () {
 test('the tour explorer page shares the default minimum times played config', function () {
     config(['app.default_min_played' => 25]);
 
-    $this->get(route('tour-explorer'))
+    $this->get(route('home'))
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
-            ->component('examples/TourExplorer')
+            ->component('SongExplorer')
             ->where('defaultMinPlayed', 25)
         );
 });

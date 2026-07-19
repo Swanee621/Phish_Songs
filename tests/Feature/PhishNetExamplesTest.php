@@ -137,3 +137,14 @@ test('the tour explorer page shares the excluded songs config', function () {
             ->where('excludedSongs', ['jam'])
         );
 });
+
+test('the tour explorer page shares the default minimum times played config', function () {
+    config(['app.default_min_played' => 25]);
+
+    $this->get(route('tour-explorer'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('examples/TourExplorer')
+            ->where('defaultMinPlayed', 25)
+        );
+});

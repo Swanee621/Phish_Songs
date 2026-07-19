@@ -123,4 +123,6 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    'default_min_played' => (int) env('DEFAULT_MINPLAYED', 10),
+
 ];

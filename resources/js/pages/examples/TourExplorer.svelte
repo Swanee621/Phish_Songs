@@ -95,7 +95,10 @@
 
     const savedPrefs = readPrefsCookie();
 
-    let { excludedSongs = [] }: { excludedSongs?: string[] } = $props();
+    let {
+        excludedSongs = [],
+        defaultMinPlayed = 10
+    }: { excludedSongs?: string[]; defaultMinPlayed?: number } = $props();
 
     let years = $state<number[]>([]);
     let yearsLoaded = $state(false);
@@ -119,7 +122,7 @@
     let minTimesPlayed = $state(
         typeof savedPrefs?.minTimesPlayed === 'number'
             ? savedPrefs.minTimesPlayed
-            : 5
+            : defaultMinPlayed
     );
     let onlyPhishSongs = $state(
         typeof savedPrefs?.onlyPhishSongs === 'boolean'

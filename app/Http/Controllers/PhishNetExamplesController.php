@@ -33,6 +33,7 @@ class PhishNetExamplesController extends Controller
     {
         return Inertia::render('examples/TourExplorer', [
             'excludedSongs' => config('services.phishnet.excluded_songs', []),
+            'defaultMinPlayed' => config('app.default_min_played'),
         ]);
     }
 

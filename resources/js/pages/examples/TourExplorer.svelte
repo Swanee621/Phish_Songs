@@ -598,7 +598,7 @@
                                 <button
                                     type="button"
                                     onclick={() => openSongDialog(row.slug)}
-                                    class="flex items-baseline cursor-pointer justify-between gap-2 rounded p-3 text-left text-sm hover:bg-accent hover:text-primary"
+                                    class="flex items-baseline cursor-pointer justify-between gap-2 rounded p-3 text-left text-base hover:bg-accent hover:text-primary"
                                 >
                                     <span class="truncate">{row.song}</span>
                                     <span
@@ -648,7 +648,7 @@
                             <button
                                 type="button"
                                 onclick={() => openSongDialog(song.slug)}
-                                class="truncate rounded cursor-pointer p-3 text-left text-sm text-muted-foreground hover:bg-accent hover:text-primary"
+                                class="truncate rounded cursor-pointer p-3 text-left text-base text-muted-foreground hover:bg-accent hover:text-primary"
                             >
                                 {song.song}
                             </button>

@@ -17,7 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         // Trust the Cloudflare tunnel (cloudflared) so X-Forwarded-Proto is honored
         // and the request is correctly detected as HTTPS behind the tunnel.
-        $middleware->trustProxies(at: '*', headers:
+        $middleware->trustProxies(at: '10.50.0.0/24', headers:
             Request::HEADER_X_FORWARDED_FOR |
             Request::HEADER_X_FORWARDED_HOST |
             Request::HEADER_X_FORWARDED_PORT |

@@ -37,8 +37,8 @@
                 flex-direction: column;
                 background-color: var(--background);
                 color: var(--foreground);
-                font-family: 'Instrument Sans', ui-sans-serif, system-ui,
-                    -apple-system, 'Segoe UI', Roboto, sans-serif;
+                font-family: ui-sans-serif, system-ui, -apple-system,
+                    'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
                 -webkit-font-smoothing: antialiased;
             }
 

@@ -13,11 +13,12 @@ class PhishNetWatchCommand extends Command
 
     public function handle(): int
     {
-        $interval = (int) config('phishnet.sync.interval');
+        $idle = (int) config('phishnet.sync.interval');
+        $active = (int) config('phishnet.sync.active_interval');
 
         SyncPhishNetTour::dispatch();
 
-        $this->info("Tour sync loop started; checking every {$interval}s.");
+        $this->info("Tour sync loop started; checking every {$active}s during a show, {$idle}s otherwise.");
         $this->line('A queue worker must be running for the loop to advance: php artisan queue:work');
 
         return self::SUCCESS;

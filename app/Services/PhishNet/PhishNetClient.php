@@ -60,6 +60,19 @@ class PhishNetClient
     }
 
     /**
+     * Shows scheduled for a single date.
+     *
+     * Unlike the setlist feeds, this returns shows that have not been played
+     * yet, which is what makes it usable for detecting a show happening today.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function fetchShowsForDate(string $showdate): array
+    {
+        return $this->get("shows/showdate/{$showdate}.json");
+    }
+
+    /**
      * The full catalog of every song Phish has ever played live.
      *
      * The upstream API returns duplicate rows for a handful of songs (same

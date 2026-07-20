@@ -9,6 +9,7 @@ use App\Models\Tour;
 use App\Models\Venue;
 use App\Services\PhishNet\PhishNetRepository;
 use App\Services\PhishNet\PhishNetSynchronizer;
+use App\Services\PhishNet\VenueTimezone;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -220,6 +221,196 @@ test('the sync job re-dispatches itself on the configured interval', function ()
     (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
 
     Queue::assertPushed(SyncPhishNetTour::class);
+});
+
+/**
+ * @param  array<int, array<string, mixed>>  $rows
+ */
+function fakeScheduledShows(string $showdate, array $rows): void
+{
+    fakeEndpoint("shows/showdate/{$showdate}.json", $rows);
+}
+
+/**
+ * @param  array<string, mixed>  $overrides
+ * @return array<string, mixed>
+ */
+function scheduledShowRow(array $overrides = []): array
+{
+    return array_merge([
+        'showid' => 1771439079,
+        'showdate' => '2026-07-19',
+        'showyear' => 2026,
+        'venueid' => 9,
+        'venue' => 'Merriweather Post Pavilion',
+        'city' => 'Columbia',
+        'state' => 'MD',
+        'country' => 'USA',
+        'artistid' => 1,
+        'artist_name' => 'Phish',
+        'tourid' => 217,
+        'tour_name' => '2026 Summer Tour',
+    ], $overrides);
+}
+
+test('the schedule is not even fetched outside the eastern gate', function () {
+    fakeScheduledShows('2026-07-19', [scheduledShowRow()]);
+
+    $this->travelTo('2026-07-19 14:00:00 America/New_York');
+
+    expect(app(PhishNetSynchronizer::class)->showdateInWindow())->toBeNull();
+
+    Http::assertNothingSent();
+});
+
+test('an eastern show is not live an hour before its window opens', function () {
+    fakeScheduledShows('2026-07-19', [scheduledShowRow()]);
+
+    $this->travelTo('2026-07-19 18:30:00 America/New_York');
+
+    expect(app(PhishNetSynchronizer::class)->showdateInWindow())->toBeNull();
+});
+
+test('the evening window maps to the same days showdate', function () {
+    fakeScheduledShows('2026-07-19', [scheduledShowRow()]);
+
+    $this->travelTo('2026-07-19 21:30:00 America/New_York');
+
+    expect(app(PhishNetSynchronizer::class)->showdateInWindow())->toBe('2026-07-19');
+    expect(app(PhishNetSynchronizer::class)->inShowWindow())->toBeTrue();
+});
+
+test('after midnight the window still belongs to the previous days showdate', function () {
+    fakeScheduledShows('2026-07-19', [scheduledShowRow()]);
+
+    $this->travelTo('2026-07-20 00:30:00 America/New_York');
+
+    expect(app(PhishNetSynchronizer::class)->showdateInWindow())->toBe('2026-07-19');
+});
+
+test('a pacific show is still live at an hour that an eastern show would have ended', function () {
+    fakeScheduledShows('2026-07-19', [scheduledShowRow([
+        'state' => 'CA', 'city' => 'Los Angeles', 'venue' => 'Hollywood Bowl',
+    ])]);
+
+    /** 23:30 Pacific — a full 02:30 Eastern, past any east coast show. */
+    $this->travelTo('2026-07-19 23:30:00 America/Los_Angeles');
+
+    expect(app(PhishNetSynchronizer::class)->showdateInWindow())->toBe('2026-07-19');
+});
+
+test('a pacific show is not yet live when the eastern clock is already past 7pm', function () {
+    fakeScheduledShows('2026-07-19', [scheduledShowRow([
+        'state' => 'CA', 'city' => 'Los Angeles', 'venue' => 'Hollywood Bowl',
+    ])]);
+
+    /** 19:30 Eastern is only 16:30 in Los Angeles, hours before doors. */
+    $this->travelTo('2026-07-19 19:30:00 America/New_York');
+
+    expect(app(PhishNetSynchronizer::class)->showdateInWindow())->toBeNull();
+});
+
+test('a mountain time show resolves to its own window', function () {
+    fakeScheduledShows('2026-09-04', [scheduledShowRow([
+        'showdate' => '2026-09-04', 'state' => 'CO', 'city' => 'Commerce City',
+        'venue' => "Dick's Sporting Goods Park",
+    ])]);
+
+    $this->travelTo('2026-09-04 21:00:00 America/Denver');
+
+    expect(app(PhishNetSynchronizer::class)->showdateInWindow())->toBe('2026-09-04');
+});
+
+test('a side project show on the same date does not count as a phish show', function () {
+    fakeScheduledShows('2026-07-19', [
+        scheduledShowRow(['artistid' => 6, 'artist_name' => 'Mike Gordon']),
+    ]);
+
+    $this->travelTo('2026-07-19 21:30:00 America/New_York');
+
+    expect(app(PhishNetSynchronizer::class)->inShowWindow())->toBeFalse();
+});
+
+test('a show is only in progress once setlist entries appear', function () {
+    fakeScheduledShows('2026-07-19', [scheduledShowRow()]);
+
+    $this->travelTo('2026-07-19 21:30:00 America/New_York');
+
+    $synchronizer = app(PhishNetSynchronizer::class);
+
+    expect($synchronizer->showInProgress())->toBeFalse();
+
+    fakeEndpoint('setlists/showdate/2026-07-19.json', [
+        setlistRow(['showdate' => '2026-07-19', 'showyear' => 2026]),
+    ]);
+
+    expect($synchronizer->showInProgress())->toBeTrue();
+});
+
+test('a finished show does not read as in progress once the window closes', function () {
+    fakeScheduledShows('2026-07-19', [scheduledShowRow()]);
+    fakeEndpoint('setlists/showdate/2026-07-19.json', [
+        setlistRow(['showdate' => '2026-07-19', 'showyear' => 2026]),
+    ]);
+
+    $this->travelTo('2026-07-20 11:00:00 America/New_York');
+
+    expect(app(PhishNetSynchronizer::class)->showInProgress())->toBeFalse();
+});
+
+test('venue timezones resolve across the four mainland zones', function () {
+    $timezone = app(VenueTimezone::class);
+
+    expect($timezone->resolve('NY'))->toBe('America/New_York')
+        ->and($timezone->resolve('TX'))->toBe('America/Chicago')
+        ->and($timezone->resolve('CO'))->toBe('America/Denver')
+        ->and($timezone->resolve('WA'))->toBe('America/Los_Angeles')
+        ->and($timezone->resolve('AZ'))->toBe('America/Phoenix');
+});
+
+test('an unknown or blank venue state falls back to eastern', function () {
+    $timezone = app(VenueTimezone::class);
+
+    expect($timezone->resolve(''))->toBe('America/New_York')
+        ->and($timezone->resolve(null))->toBe('America/New_York')
+        ->and($timezone->resolveForShow(['country' => 'Japan']))->toBe('America/New_York');
+});
+
+test('the sync loop tightens its interval during a show window', function () {
+    config([
+        'phishnet.sync.interval' => 3600,
+        'phishnet.sync.active_interval' => 360,
+    ]);
+
+    Queue::fake();
+    fakeSetlistYear(2026, []);
+    fakeScheduledShows('2026-07-19', [scheduledShowRow()]);
+
+    $this->travelTo('2026-07-19 21:30:00 America/New_York');
+
+    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+
+    Queue::assertPushed(SyncPhishNetTour::class, function (SyncPhishNetTour $job) {
+        return $job->delay->timestamp === now()->addSeconds(360)->timestamp;
+    });
+});
+
+test('the sync loop backs off to the idle interval with no show scheduled', function () {
+    config([
+        'phishnet.sync.interval' => 3600,
+        'phishnet.sync.active_interval' => 360,
+    ]);
+
+    Queue::fake();
+    fakeSetlistYear(2026, []);
+
+    $this->travelTo('2026-07-19 21:30:00 America/New_York');
+
+    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+
+    Queue::assertPushed(SyncPhishNetTour::class, function (SyncPhishNetTour $job) {
+        return $job->delay->timestamp === now()->addSeconds(3600)->timestamp;
+    });
 });
 
 test('a one-off sync job does not re-dispatch itself', function () {

@@ -12,7 +12,12 @@ use Throwable;
 
 /**
  * Checks the currently running tour for changes, then re-dispatches itself so
- * the check repeats every `phishnet.sync.interval` seconds.
+ * the check repeats.
+ *
+ * The delay before the next run depends on whether a show is underway: setlists
+ * only move while Phish is on stage, so the loop polls on
+ * `phishnet.sync.active_interval` inside a show window and backs off to
+ * `phishnet.sync.interval` the rest of the time.
  *
  * Only the live show year is polled — historical years never change, so they are
  * imported once by `phish:backfill` and then read from the database forever.
@@ -50,6 +55,12 @@ class SyncPhishNetTour implements ShouldBeUniqueUntilProcessing, ShouldQueue
 
     public function handle(PhishNetSynchronizer $synchronizer): void
     {
+        /*
+         * Read before syncing, so a show that starts mid-run still tightens the
+         * interval on this pass rather than the next one.
+         */
+        $inShowWindow = $synchronizer->inShowWindow();
+
         $year = $synchronizer->currentShowYear();
 
         /*
@@ -65,7 +76,7 @@ class SyncPhishNetTour implements ShouldBeUniqueUntilProcessing, ShouldQueue
          * retried by the queue, and its final failure re-arms the loop from
          * failed(), so the loop can never fork into two chains.
          */
-        $this->scheduleNextRun();
+        $this->scheduleNextRun($inShowWindow);
     }
 
     public function failed(?Throwable $exception): void
@@ -77,18 +88,30 @@ class SyncPhishNetTour implements ShouldBeUniqueUntilProcessing, ShouldQueue
         /*
          * Keep the loop alive across a failed run, otherwise a single upstream
          * outage silently stops all future syncing.
+         *
+         * Re-checking the window costs one request, and falls back to the idle
+         * interval when that request fails too — backing off is the right
+         * response to an upstream that is already refusing us.
          */
-        $this->scheduleNextRun();
+        try {
+            $inShowWindow = app(PhishNetSynchronizer::class)->inShowWindow();
+        } catch (Throwable) {
+            $inShowWindow = false;
+        }
+
+        $this->scheduleNextRun($inShowWindow);
     }
 
-    protected function scheduleNextRun(): void
+    protected function scheduleNextRun(bool $inShowWindow = false): void
     {
         if (! $this->continuous) {
             return;
         }
 
-        self::dispatch()->delay(now()->addSeconds(
-            (int) config('phishnet.sync.interval'),
-        ));
+        $interval = $inShowWindow
+            ? (int) config('phishnet.sync.active_interval')
+            : (int) config('phishnet.sync.interval');
+
+        self::dispatch()->delay(now()->addSeconds($interval));
     }
 }

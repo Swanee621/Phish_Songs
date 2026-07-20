@@ -8,6 +8,9 @@ use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
+use Laravel\Nightwatch\Facades\Nightwatch;
+use Laravel\Nightwatch\Records\CacheEvent;
+use Laravel\Nightwatch\Records\Query;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -27,6 +30,15 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->configureDefaults();
+
+        if (config('nightwatch.enabled')) {
+            Nightwatch::rejectQueries(function (Query $query) {
+                return str_contains($query->sql, 'pulse_') || str_contains($query->sql, 'telescope_');
+            });
+            Nightwatch::rejectCacheEvents(function (CacheEvent $event) {
+                return str_contains($event->key, 'pulse') || str_contains($event->key, 'telescope');
+            });
+        }
     }
 
     /**

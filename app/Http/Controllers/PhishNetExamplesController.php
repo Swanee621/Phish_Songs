@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\PhishNet\PhishNetClient;
+use App\Services\PhishNet\PhishNetRepository;
 use Illuminate\Http\JsonResponse;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -47,38 +48,38 @@ class PhishNetExamplesController extends Controller
         return response()->json(['data' => $client->jamChartForSlug($slug)]);
     }
 
-    public function currentYearSetlists(PhishNetClient $client): JsonResponse
+    public function currentYearSetlists(PhishNetRepository $repository): JsonResponse
     {
-        return response()->json(['data' => $client->setlistsForYear((int) now()->year)]);
+        return response()->json(['data' => $repository->setlistsForYear((int) now()->year)]);
     }
 
-    public function setlistsForYear(PhishNetClient $client, int $year): JsonResponse
+    public function setlistsForYear(PhishNetRepository $repository, int $year): JsonResponse
     {
-        return response()->json(['data' => $client->setlistsForYear($year)]);
+        return response()->json(['data' => $repository->setlistsForYear($year)]);
     }
 
-    public function setlistForDate(PhishNetClient $client, string $showdate): JsonResponse
+    public function setlistForDate(PhishNetRepository $repository, string $showdate): JsonResponse
     {
-        return response()->json(['data' => $client->setlistForShowdate($showdate)]);
+        return response()->json(['data' => $repository->setlistForShowdate($showdate)]);
     }
 
-    public function showYears(PhishNetClient $client): JsonResponse
+    public function showYears(PhishNetRepository $repository): JsonResponse
     {
-        return response()->json(['data' => $client->showYears()]);
+        return response()->json(['data' => $repository->showYears()]);
     }
 
-    public function venues(PhishNetClient $client): JsonResponse
+    public function venues(PhishNetRepository $repository): JsonResponse
     {
-        return response()->json(['data' => $client->venues()]);
+        return response()->json(['data' => $repository->venues()]);
     }
 
-    public function songs(PhishNetClient $client): JsonResponse
+    public function songs(PhishNetRepository $repository): JsonResponse
     {
-        return response()->json(['data' => $client->songs()]);
+        return response()->json(['data' => $repository->songs()]);
     }
 
-    public function venueShows(PhishNetClient $client, int $venue): JsonResponse
+    public function venueShows(PhishNetRepository $repository, int $venue): JsonResponse
     {
-        return response()->json(['data' => $client->showsForVenue($venue)]);
+        return response()->json(['data' => $repository->showsForVenue($venue)]);
     }
 }

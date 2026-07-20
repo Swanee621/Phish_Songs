@@ -5,24 +5,25 @@ namespace App\Services\PhishNet;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
+/**
+ * Thin client for the phish.net v5 API.
+ *
+ * Show, setlist, song and venue data is fetched uncached — those resources are
+ * mirrored into the local database by {@see PhishNetSynchronizer} and read back
+ * through {@see PhishNetRepository}, so the only callers are sync routines that
+ * need a fresh payload to compare against what is already stored.
+ *
+ * Jam charts are annotations rather than show data, so they are not mirrored and
+ * stay cached here.
+ */
 class PhishNetClient
 {
     protected const BASE_URL = 'https://api.phish.net/v5';
 
     /**
-     * TTL for reference data that only grows when a new show happens (venues, jam chart catalog, etc).
+     * TTL for jam chart data, which only grows when a new show is annotated.
      */
     protected const TTL_REFERENCE = 60 * 60 * 24 * 7;
-
-    /**
-     * TTL for data tied to a specific past year/date, which never changes once the year has ended.
-     */
-    protected const TTL_HISTORICAL = 60 * 60 * 24 * 30;
-
-    /**
-     * TTL for data tied to the current year, which can still change mid-tour.
-     */
-    protected const TTL_LIVE = 60 * 15;
 
     public function __construct(protected string $apiKey) {}
 
@@ -45,81 +46,46 @@ class PhishNetClient
     /**
      * @return array<int, array<string, mixed>>
      */
-    public function setlistsForYear(int $year): array
+    public function fetchSetlistsForYear(int $year): array
     {
-        return $this->cached(
-            "setlists.showyear.{$year}",
-            $this->ttlForYear($year),
-            fn () => $this->get("setlists/showyear/{$year}.json"),
-        );
+        return $this->get("setlists/showyear/{$year}.json");
     }
 
     /**
      * @return array<int, array<string, mixed>>
      */
-    public function setlistForShowdate(string $showdate): array
+    public function fetchSetlistForShowdate(string $showdate): array
     {
-        $year = (int) substr($showdate, 0, 4);
-
-        return $this->cached(
-            "setlists.showdate.{$showdate}",
-            $this->ttlForYear($year),
-            fn () => $this->get("setlists/showdate/{$showdate}.json"),
-        );
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    public function showYears(): array
-    {
-        return $this->cached('shows.showyear', self::TTL_REFERENCE, fn () => $this->get('shows.json', ['order_by' => 'showyear']));
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    public function venues(): array
-    {
-        return $this->cached('venues', self::TTL_REFERENCE, fn () => $this->get('venues.json'));
+        return $this->get("setlists/showdate/{$showdate}.json");
     }
 
     /**
      * The full catalog of every song Phish has ever played live.
      *
      * The upstream API returns duplicate rows for a handful of songs (same
-     * slug, different permalink), so this de-dupes by slug before caching.
+     * slug, different permalink), so this de-dupes by slug.
      *
      * @return array<int, array<string, mixed>>
      */
-    public function songs(): array
+    public function fetchSongs(): array
     {
-        return $this->cached('songs', self::TTL_REFERENCE, function () {
-            $songs = collect($this->get('songs.json'))->unique('slug')->values();
-
-            return $songs->all();
-        });
+        return collect($this->get('songs.json'))->unique('slug')->values()->all();
     }
 
     /**
      * @return array<int, array<string, mixed>>
      */
-    public function showsForVenue(int $venueId): array
+    public function fetchVenues(): array
     {
-        return $this->cached(
-            "shows.venueid.{$venueId}",
-            self::TTL_REFERENCE,
-            fn () => $this->get("shows/venueid/{$venueId}.json", ['order_by' => 'showdate', 'direction' => 'desc']),
-        );
+        return $this->get('venues.json');
     }
 
     /**
-     * The current year's data can still change mid-tour, so cache it briefly.
-     * Past years are immutable, so cache them for a long time.
+     * @return array<int, array<string, mixed>>
      */
-    protected function ttlForYear(int $year): int
+    public function fetchShowYears(): array
     {
-        return $year >= now()->year ? self::TTL_LIVE : self::TTL_HISTORICAL;
+        return $this->get('shows.json', ['order_by' => 'showyear']);
     }
 
     /**
@@ -129,6 +95,8 @@ class PhishNetClient
     protected function get(string $path, array $query = []): array
     {
         $response = Http::baseUrl(self::BASE_URL)
+            ->retry(3, 200, throw: false)
+            ->timeout(30)
             ->get($path, [...$query, 'apikey' => $this->apiKey])
             ->throw();
 

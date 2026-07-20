@@ -1,0 +1,199 @@
+<?php
+
+namespace App\Services\PhishNet;
+
+use App\Models\Show;
+use App\Models\Song;
+use App\Models\Venue;
+use Illuminate\Database\Query\Builder;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * Serves phish.net data out of the local database.
+ *
+ * The database is the source of truth; the cache in front of it holds the
+ * already-serialized payloads forever and is only invalidated when a sync
+ * detects that upstream data actually changed. Nothing here talks to the API.
+ */
+class PhishNetRepository
+{
+    public const CACHE_PREFIX = 'phishnet';
+
+    /**
+     * Columns that reconstruct the flat, denormalized row shape the phish.net
+     * setlist endpoints return, which the frontend already consumes.
+     *
+     * @var array<int, string>
+     */
+    protected const SETLIST_COLUMNS = [
+        'setlist_entries.uniqueid',
+        'setlist_entries.showid',
+        'setlist_entries.songid',
+        'setlist_entries.song',
+        'setlist_entries.slug',
+        'setlist_entries.set',
+        'setlist_entries.position',
+        'setlist_entries.transition',
+        'setlist_entries.trans_mark',
+        'setlist_entries.footnote',
+        'setlist_entries.isjam',
+        'setlist_entries.isreprise',
+        'setlist_entries.isjamchart',
+        'setlist_entries.jamchart_description',
+        'setlist_entries.tracktime',
+        'setlist_entries.gap',
+        'setlist_entries.is_original',
+        'setlist_entries.artistid',
+        'shows.showdate',
+        'shows.showyear',
+        'shows.permalink',
+        'shows.setlistnotes',
+        'shows.venueid',
+        'shows.tourid',
+        'venues.venuename as venue',
+        'venues.city',
+        'venues.state',
+        'venues.country',
+        'tours.tourname',
+        'tours.tourwhen',
+    ];
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    public function setlistsForYear(int $year): array
+    {
+        return $this->cached("setlists.year.{$year}", fn () => $this->setlistQuery()
+            ->where('shows.showyear', $year)
+            ->orderBy('shows.showdate')
+            ->orderBy('setlist_entries.position')
+            ->get()
+            ->all());
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    public function setlistForShowdate(string $showdate): array
+    {
+        return $this->cached("setlists.showdate.{$showdate}", fn () => $this->setlistQuery()
+            ->where('shows.showdate', $showdate)
+            ->orderBy('setlist_entries.position')
+            ->get()
+            ->all());
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    public function showYears(): array
+    {
+        return $this->cached('shows.showyear', fn () => Show::query()
+            ->select('showyear')
+            ->distinct()
+            ->orderBy('showyear')
+            ->pluck('showyear')
+            ->map(fn (int $year) => ['showyear' => (string) $year])
+            ->all());
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    public function venues(): array
+    {
+        return $this->cached('venues', fn () => Venue::query()
+            ->orderBy('venuename')
+            ->get(['venueid', 'venuename', 'city', 'state', 'country'])
+            ->map(fn (Venue $venue) => $venue->toArray())
+            ->all());
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    public function songs(): array
+    {
+        return $this->cached('songs', fn () => Song::query()
+            ->orderBy('song')
+            ->get(['songid', 'song', 'slug', 'artist', 'times_played', 'debut', 'last_played', 'gap'])
+            ->map(fn (Song $song) => $song->toArray())
+            ->all());
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    public function showsForVenue(int $venueId): array
+    {
+        return $this->cached("shows.venueid.{$venueId}", fn () => Show::query()
+            ->leftJoin('tours', 'tours.tourid', '=', 'shows.tourid')
+            ->where('shows.venueid', $venueId)
+            ->orderByDesc('shows.showdate')
+            ->get(['shows.showid', 'shows.showdate', 'shows.permalink', 'shows.artistid', 'tours.tourname'])
+            ->map(fn (Show $show) => $show->toArray())
+            ->all());
+    }
+
+    /**
+     * Drop every cached payload derived from the given show year, plus the
+     * catalogs whose contents shift whenever new shows are imported.
+     */
+    public function forgetYear(int $year): void
+    {
+        Cache::forget($this->key("setlists.year.{$year}"));
+        Cache::forget($this->key('shows.showyear'));
+
+        Show::query()
+            ->where('showyear', $year)
+            ->pluck('showdate')
+            ->each(fn (string $showdate) => Cache::forget(
+                $this->key("setlists.showdate.{$showdate}"),
+            ));
+
+        Show::query()
+            ->where('showyear', $year)
+            ->whereNotNull('venueid')
+            ->distinct()
+            ->pluck('venueid')
+            ->each(fn (int $venueId) => Cache::forget($this->key("shows.venueid.{$venueId}")));
+    }
+
+    public function forgetSongs(): void
+    {
+        Cache::forget($this->key('songs'));
+    }
+
+    public function forgetVenues(): void
+    {
+        Cache::forget($this->key('venues'));
+    }
+
+    protected function setlistQuery(): Builder
+    {
+        return DB::table('setlist_entries')
+            ->join('shows', 'shows.showid', '=', 'setlist_entries.showid')
+            ->leftJoin('venues', 'venues.venueid', '=', 'shows.venueid')
+            ->leftJoin('tours', 'tours.tourid', '=', 'shows.tourid')
+            ->select(self::SETLIST_COLUMNS);
+    }
+
+    protected function key(string $key): string
+    {
+        return self::CACHE_PREFIX.".{$key}";
+    }
+
+    /**
+     * @param  \Closure(): array<int, mixed>  $callback
+     * @return array<int, array<string, mixed>>
+     */
+    protected function cached(string $key, \Closure $callback): array
+    {
+        return Cache::rememberForever($this->key($key), function () use ($callback) {
+            return collect($callback())
+                ->map(fn ($row) => is_array($row) ? $row : (array) $row)
+                ->all();
+        });
+    }
+}

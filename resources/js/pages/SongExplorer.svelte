@@ -577,7 +577,7 @@
             {#if loadingYear}
                 <p class="text-sm text-muted-foreground">Loading tour…</p>
             {:else if selectedTour}
-                <div class="flex items-center justify-between gap-4">
+                <div class="flex items-start justify-between gap-4">
                     <Button
                         variant="outline"
                         size="sm"

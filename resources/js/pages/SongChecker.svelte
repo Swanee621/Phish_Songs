@@ -2,7 +2,7 @@
     import { home } from '@/routes';
 
     export const layout = {
-        breadcrumbs: [{ title: 'Song Explorer', href: home() }],
+        breadcrumbs: [{ title: 'Song Checker', href: home() }],
     };
 </script>
 
@@ -489,8 +489,8 @@
 <AppHead />
 
 <div class="flex h-full flex-1 flex-col gap-4 p-4">
-    <div class="flex items-center justify-between gap-4">
-        <h1 class="text-2xl font-semibold">Song Explorer</h1>
+    <div class="flex max-w-5xl items-center justify-between gap-4">
+        <h1 class="text-2xl font-semibold">Song Checker</h1>
 
         {#if !initialLoading && yearsLoaded}
             <Button
@@ -498,7 +498,7 @@
                 size="icon"
                 onclick={() => (filtersOpen = !filtersOpen)}
                 aria-expanded={filtersOpen}
-                aria-controls="song-explorer-filters"
+                aria-controls="song-checker-filters"
                 aria-label={filtersOpen ? 'Hide filters' : 'Show filters'}
             >
                 <ChevronDown
@@ -515,7 +515,7 @@
     {:else}
         {#if filtersOpen}
             <div
-                id="song-explorer-filters"
+                id="song-checker-filters"
                 class="flex flex-col gap-4"
                 transition:slide={{ duration: 200 }}
             >
@@ -623,12 +623,14 @@
                         {/if}
                     </p>
 
-                    <div class="inline-flex rounded-md border p-0.5">
+                    <div
+                        class="flex w-full rounded-md border p-0.5 md:inline-flex md:w-auto"
+                    >
                         <button
                             type="button"
                             onclick={() => (viewMode = 'played')}
                             class={[
-                                'rounded px-3 py-1 text-xs font-medium transition-colors',
+                                'flex-1 rounded px-4 py-2.5 text-sm font-medium transition-colors md:flex-none md:px-3 md:py-1 md:text-xs',
                                 viewMode === 'played'
                                     ? 'bg-primary text-primary-foreground'
                                     : 'text-muted-foreground hover:text-foreground',
@@ -640,7 +642,7 @@
                             type="button"
                             onclick={() => (viewMode = 'not-played')}
                             class={[
-                                'rounded px-3 py-1 text-xs font-medium transition-colors',
+                                'flex-1 rounded px-4 py-2.5 text-sm font-medium transition-colors md:flex-none md:px-3 md:py-1 md:text-xs',
                                 viewMode === 'not-played'
                                     ? 'bg-primary text-primary-foreground'
                                     : 'text-muted-foreground hover:text-foreground',
@@ -680,13 +682,21 @@
                         Loading full song catalog…
                     </p>
                 {:else}
-                    <div class="mt-3 flex flex-wrap items-center gap-3">
-                        <label
-                            for="min-times-played"
-                            class="shrink-0 text-xs text-muted-foreground"
-                        >
-                            Played all-time
-                        </label>
+                    <div class="mt-3 flex flex-col gap-3">
+                        <div class="flex items-center justify-between gap-3">
+                            <label
+                                for="min-times-played"
+                                class="shrink-0 text-sm text-muted-foreground md:text-xs"
+                            >
+                                All-time Play Count
+                            </label>
+                            <span
+                                class="shrink-0 text-sm font-medium tabular-nums text-muted-foreground md:text-xs"
+                            >
+                                {minTimesPlayed}+ times
+                            </span>
+                        </div>
+
                         <input
                             id="min-times-played"
                             type="range"
@@ -694,13 +704,8 @@
                             max="300"
                             step="5"
                             bind:value={minTimesPlayed}
-                            class="w-full max-w-52 accent-primary"
+                            class="h-6 w-full cursor-pointer appearance-none bg-transparent [&::-webkit-slider-runnable-track]:h-2 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-secondary [&::-webkit-slider-thumb]:-mt-2 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-moz-range-track]:h-2 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-secondary [&::-moz-range-thumb]:h-6 [&::-moz-range-thumb]:w-6 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-primary md:h-5 md:[&::-webkit-slider-thumb]:-mt-1.5 md:[&::-webkit-slider-thumb]:h-5 md:[&::-webkit-slider-thumb]:w-5 md:[&::-moz-range-thumb]:h-5 md:[&::-moz-range-thumb]:w-5"
                         />
-                        <span
-                            class="w-16 shrink-0 text-xs font-medium tabular-nums text-muted-foreground"
-                        >
-                            {minTimesPlayed}+ times
-                        </span>
 
                         <div class="flex items-center gap-2">
                             <Checkbox
@@ -709,7 +714,7 @@
                             />
                             <Label
                                 for="only-phish-songs"
-                                class="text-xs font-normal text-muted-foreground"
+                                class="text-sm font-normal text-muted-foreground md:text-xs"
                             >
                                 Only Phish Songs
                             </Label>

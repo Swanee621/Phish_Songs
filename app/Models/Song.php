@@ -2,15 +2,10 @@
 
 namespace App\Models;
 
-use Database\Factories\SongFactory;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Song extends Model
 {
-    /** @use HasFactory<SongFactory> */
-    use HasFactory;
-
     protected $primaryKey = 'songid';
 
     public $incrementing = false;

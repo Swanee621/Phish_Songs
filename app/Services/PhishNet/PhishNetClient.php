@@ -2,46 +2,22 @@
 
 namespace App\Services\PhishNet;
 
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
 /**
  * Thin client for the phish.net v5 API.
  *
- * Show, setlist, song and venue data is fetched uncached — those resources are
- * mirrored into the local database by {@see PhishNetSynchronizer} and read back
- * through {@see PhishNetRepository}, so the only callers are sync routines that
- * need a fresh payload to compare against what is already stored.
- *
- * Jam charts are annotations rather than show data, so they are not mirrored and
- * stay cached here.
+ * Every resource fetched here is mirrored into the local database by
+ * {@see PhishNetSynchronizer} and read back through {@see PhishNetRepository},
+ * so the only callers are sync routines that need a fresh payload to compare
+ * against what is already stored. Nothing in a web request path reaches this
+ * class, which keeps the API key off every user-facing response.
  */
 class PhishNetClient
 {
     protected const BASE_URL = 'https://api.phish.net/v5';
 
-    /**
-     * TTL for jam chart data, which only grows when a new show is annotated.
-     */
-    protected const TTL_REFERENCE = 60 * 60 * 24 * 7;
-
     public function __construct(protected string $apiKey) {}
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    public function jamCharts(): array
-    {
-        return $this->cached('jamcharts', self::TTL_REFERENCE, fn () => $this->get('jamcharts.json'));
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    public function jamChartForSlug(string $slug): array
-    {
-        return $this->cached("jamcharts.slug.{$slug}", self::TTL_REFERENCE, fn () => $this->get("jamcharts/slug/{$slug}.json"));
-    }
 
     /**
      * @return array<int, array<string, mixed>>
@@ -114,14 +90,5 @@ class PhishNetClient
             ->throw();
 
         return $response->json('data') ?? [];
-    }
-
-    /**
-     * @param  \Closure(): array<int, array<string, mixed>>  $callback
-     * @return array<int, array<string, mixed>>
-     */
-    protected function cached(string $key, int $seconds, \Closure $callback): array
-    {
-        return Cache::remember("phishnet.{$key}", $seconds, $callback);
     }
 }

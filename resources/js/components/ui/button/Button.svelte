@@ -17,7 +17,7 @@
     };
 
     const base =
-        'inline-flex items-center whitespace-nowrap justify-center gap-2 py-6 w-min md:w-1/3 rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50';
+        'inline-flex items-center whitespace-nowrap justify-center gap-2 rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50';
 
     const variants: Record<Variant, string> = {
         default: 'bg-primary text-primary-foreground shadow hover:bg-primary/90',
@@ -31,10 +31,10 @@
     };
 
     const sizes: Record<Size, string> = {
-        default: 'h-9 px-4 py-2',
-        sm: 'h-8 rounded-md px-3 text-xs',
-        lg: 'h-10 rounded-md px-8',
-        icon: 'h-9 w-9',
+        default: 'h-11 px-5 py-2.5 text-base md:h-9 md:px-4 md:py-2 md:text-sm',
+        sm: 'h-10 rounded-md px-4 text-sm md:h-8 md:px-3 md:text-xs',
+        lg: 'h-12 rounded-md px-8 text-base md:h-10 md:text-sm',
+        icon: 'h-10 w-10 md:h-9 md:w-9',
     };
 
     let {

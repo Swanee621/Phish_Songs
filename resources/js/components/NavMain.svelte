@@ -2,7 +2,6 @@
     import { Link } from '@inertiajs/svelte';
     import {
         SidebarGroup,
-        SidebarGroupLabel,
         SidebarMenu,
         SidebarMenuButton,
         SidebarMenuItem,

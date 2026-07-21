@@ -126,5 +126,6 @@ return [
     'default_min_played' => (int) env('DEFAULT_MINPLAYED', 10),
 
     'sidebar_enabled' => (bool) env('SIDEBAR_ENABLED', true),
+    'sidebar_collapsed' => (bool) env('SIDEBAR_COLLAPSED', true),
 
 ];

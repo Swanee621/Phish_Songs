@@ -59,7 +59,6 @@ class PhishNetSynchronizer
 
         return $this->whenChanged('venues', $rows, function () use ($rows) {
             $this->importer->importVenues($rows);
-            $this->repository->forgetVenues();
         });
     }
 

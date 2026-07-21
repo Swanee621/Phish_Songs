@@ -4,7 +4,6 @@ namespace App\Services\PhishNet;
 
 use App\Models\Show;
 use App\Models\Song;
-use App\Models\Venue;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -101,38 +100,12 @@ class PhishNetRepository
     /**
      * @return array<int, array<string, mixed>>
      */
-    public function venues(): array
-    {
-        return $this->cached('venues', fn () => Venue::query()
-            ->orderBy('venuename')
-            ->get(['venueid', 'venuename', 'city', 'state', 'country'])
-            ->map(fn (Venue $venue) => $venue->toArray())
-            ->all());
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
     public function songs(): array
     {
         return $this->cached('songs', fn () => Song::query()
             ->orderBy('song')
             ->get(['songid', 'song', 'slug', 'artist', 'times_played', 'debut', 'last_played', 'gap'])
             ->map(fn (Song $song) => $song->toArray())
-            ->all());
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    public function showsForVenue(int $venueId): array
-    {
-        return $this->cached("shows.venueid.{$venueId}", fn () => Show::query()
-            ->leftJoin('tours', 'tours.tourid', '=', 'shows.tourid')
-            ->where('shows.venueid', $venueId)
-            ->orderByDesc('shows.showdate')
-            ->get(['shows.showid', 'shows.showdate', 'shows.permalink', 'shows.artistid', 'tours.tourname'])
-            ->map(fn (Show $show) => $show->toArray())
             ->all());
     }
 
@@ -151,23 +124,11 @@ class PhishNetRepository
             ->each(fn (string $showdate) => Cache::forget(
                 $this->key("setlists.showdate.{$showdate}"),
             ));
-
-        Show::query()
-            ->where('showyear', $year)
-            ->whereNotNull('venueid')
-            ->distinct()
-            ->pluck('venueid')
-            ->each(fn (int $venueId) => Cache::forget($this->key("shows.venueid.{$venueId}")));
     }
 
     public function forgetSongs(): void
     {
         Cache::forget($this->key('songs'));
-    }
-
-    public function forgetVenues(): void
-    {
-        Cache::forget($this->key('venues'));
     }
 
     protected function setlistQuery(): Builder

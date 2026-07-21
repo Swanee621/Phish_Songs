@@ -609,22 +609,6 @@
                 <div
                     class="mt-4 flex flex-wrap items-center justify-between gap-2"
                 >
-                    <p class="text-sm text-muted-foreground">
-                        {tourShows.length} show{tourShows.length !== 1
-                            ? 's'
-                            : ''} &middot;
-                        {#if viewMode === 'played'}
-                            {songCounts.length} unique song{songCounts.length !==
-                            1
-                                ? 's'
-                                : ''} played
-                        {:else}
-                            {notPlayed.length} song{notPlayed.length !== 1
-                                ? 's'
-                                : ''} not played
-                        {/if}
-                    </p>
-
                     <div
                         class="flex w-full rounded-md border p-0.5 md:inline-flex md:w-auto"
                     >
@@ -723,19 +707,27 @@
                         </div>
                     </div>
 
-                    <div
-                        class="mt-3 grid grid-cols-2 gap-x-4 gap-y-0.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
-                    >
-                        {#each notPlayed as song (song.slug)}
-                            <button
-                                type="button"
-                                onclick={() => openSongDialog(song.slug)}
-                                class="truncate rounded cursor-pointer p-3 text-left text-base text-muted-foreground hover:bg-accent hover:text-primary"
-                            >
-                                {song.song}
-                            </button>
-                        {/each}
+
+                    <div class="mt-8 flex flex-col gap-2">
+                        <p class="text-sm text-muted-foreground">
+                            {tourShows.length} show{tourShows.length !== 1 ? 's' : ''} &middot;
+                            {notPlayed.length} song{notPlayed.length !== 1 ? 's' : ''} not played
+                        </p>
+                        <div
+                            class="mt-3 grid grid-cols-2 gap-x-4 gap-y-0.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
+                        >
+                            {#each notPlayed as song (song.slug)}
+                                <button
+                                    type="button"
+                                    onclick={() => openSongDialog(song.slug)}
+                                    class="truncate rounded cursor-pointer p-3 text-left text-base text-muted-foreground hover:bg-accent hover:text-primary"
+                                >
+                                    {song.song}
+                                </button>
+                            {/each}
+                        </div>
                     </div>
+
                 {/if}
 
                 {#if songCounts.length}

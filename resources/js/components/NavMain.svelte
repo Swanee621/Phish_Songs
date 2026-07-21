@@ -19,7 +19,7 @@
     const url = currentUrlState();
 </script>
 
-<SidebarGroup class="px-2 py-0">
+<SidebarGroup>
     <SidebarMenu>
         {#each items as item (toUrl(item.href))}
             <SidebarMenuItem>

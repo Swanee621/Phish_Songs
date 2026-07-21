@@ -577,15 +577,7 @@
             {#if loadingYear}
                 <p class="text-sm text-muted-foreground">Loading tour…</p>
             {:else if selectedTour}
-                <div class="flex items-start justify-between gap-4">
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onclick={() => cycleTour(-1)}
-                        disabled={prevDisabled}
-                    >
-                        &larr; Previous tour
-                    </Button>
+                <div class="flex flex-col gap-4">
                     <div class="text-center">
                         <h2 class="font-serif text-xl font-medium">
                             {selectedTour.tourname}
@@ -594,14 +586,24 @@
                             {selectedTour.tourwhen}
                         </p>
                     </div>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onclick={() => cycleTour(1)}
-                        disabled={nextDisabled}
-                    >
-                        Next tour &rarr;
-                    </Button>
+                    <div class="flex items-start justify-between gap-4">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onclick={() => cycleTour(-1)}
+                            disabled={prevDisabled}
+                        >
+                            &larr; Previous tour
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onclick={() => cycleTour(1)}
+                            disabled={nextDisabled}
+                        >
+                            Next tour &rarr;
+                        </Button>
+                    </div>
                 </div>
 
                 <div

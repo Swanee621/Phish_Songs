@@ -15,13 +15,13 @@
     data-slot="sidebar-trigger"
     variant="ghost"
     size="icon"
-    class={cn('h-7 w-7', className)}
+    class={cn('h-14 w-14 md:h-12 md:w-12', className)}
     onclick={toggleSidebar}
 >
     {#if $isMobile || $state === 'collapsed'}
-        <PanelLeftOpen class="size-4" />
+        <PanelLeftOpen class="size-6" />
     {:else}
-        <PanelLeftClose class="size-4" />
+        <PanelLeftClose class="size-6" />
     {/if}
     <span class="sr-only">Toggle sidebar</span>
 </Button>

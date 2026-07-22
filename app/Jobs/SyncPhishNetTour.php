@@ -57,9 +57,11 @@ class SyncPhishNetTour implements ShouldBeUniqueUntilProcessing, ShouldQueue
     {
         /*
          * Read before syncing, so a show that starts mid-run still tightens the
-         * interval on this pass rather than the next one.
+         * interval on this pass rather than the next one. The showdate doubles
+         * as the window flag — it is non-null exactly when a show is underway.
          */
-        $inShowWindow = $synchronizer->inShowWindow();
+        $showdate = $synchronizer->showdateInWindow();
+        $inShowWindow = $showdate !== null;
 
         $year = $synchronizer->currentShowYear();
 
@@ -70,6 +72,13 @@ class SyncPhishNetTour implements ShouldBeUniqueUntilProcessing, ShouldQueue
         if ($synchronizer->syncYear($year)) {
             $synchronizer->syncSongs();
         }
+
+        /*
+         * Republish the snapshot the browser polls, so an open page picks up
+         * both the new version hash and the current window flag on its next
+         * poll without ever reaching the API itself.
+         */
+        $synchronizer->publishLiveState($showdate);
 
         /*
          * Only the successful path schedules the next run. A throwing run is
@@ -94,7 +103,10 @@ class SyncPhishNetTour implements ShouldBeUniqueUntilProcessing, ShouldQueue
          * response to an upstream that is already refusing us.
          */
         try {
-            $inShowWindow = app(PhishNetSynchronizer::class)->inShowWindow();
+            $synchronizer = app(PhishNetSynchronizer::class);
+            $showdate = $synchronizer->showdateInWindow();
+            $inShowWindow = $showdate !== null;
+            $synchronizer->publishLiveState($showdate);
         } catch (Throwable) {
             $inShowWindow = false;
         }

@@ -30,6 +30,7 @@
         DialogTitle,
     } from '@/components/ui/dialog';
     import { Label } from '@/components/ui/label';
+    import { createLivePoll, formatCountdown } from '@/lib/live-poll.svelte';
     import type { SetlistRow, ShowYear, Song } from '@/types/phishnet';
 
     type ViewMode = 'played' | 'not-played';
@@ -103,7 +104,14 @@
     let {
         excludedSongs = [],
         defaultMinPlayed = 10,
-    }: { excludedSongs?: string[]; defaultMinPlayed?: number } = $props();
+        clientSyncInterval = 3600,
+        clientSyncActiveInterval = 60,
+    }: {
+        excludedSongs?: string[];
+        defaultMinPlayed?: number;
+        clientSyncInterval?: number;
+        clientSyncActiveInterval?: number;
+    } = $props();
 
     let years = $state<number[]>([]);
     let yearsLoaded = $state(false);
@@ -151,6 +159,48 @@
         {},
     );
     const songsHttp = useHttp<Record<string, never>, { data: Song[] }>({});
+    const refreshHttp = useHttp<Record<string, never>, { data: SetlistRow[] }>(
+        {},
+    );
+
+    // Shared poll loop: refetch the live year whenever its version hash moves,
+    // and expose the show-window flag + countdown the setlists section renders.
+    const livePoll = createLivePoll({
+        idleInterval: clientSyncInterval,
+        activeInterval: clientSyncActiveInterval,
+        onStale: (status) => {
+            if (status.year !== null) {
+                refreshLoadedYear(status.year);
+            }
+        },
+    });
+
+    function refreshLoadedYear(year: number) {
+        if (!yearData.has(year)) {
+            return;
+        }
+
+        refreshHttp.get(setlistsForYear.url(year), {
+            onSuccess: (response) => {
+                yearData.set(year, response.data);
+
+                // Rebuild the tour list in case a new show or tour just landed,
+                // preserving whichever tour is currently selected.
+                if (currentYear === year && selectedTour) {
+                    const preservedTourId = selectedTour.tourid;
+                    currentTours = buildToursForYear(year);
+
+                    const index = currentTours.findIndex(
+                        (tour) => tour.tourid === preservedTourId,
+                    );
+
+                    if (index !== -1) {
+                        tourIndex = index;
+                    }
+                }
+            },
+        });
+    }
 
     const selectedTour = $derived<Tour | null>(currentTours[tourIndex] ?? null);
 
@@ -467,6 +517,11 @@
                 allSongsLoading = false;
             },
         });
+
+        // Establish the version baseline and start the self-pacing poll loop.
+        livePoll.start();
+
+        return () => livePoll.stop();
     });
 
     $effect(() => {
@@ -743,6 +798,26 @@
                         <div
                             class="mt-4 max-w-2xl flex flex-col space-y-5 border-t border-white pt-5"
                         >
+                            {#if livePoll.inShowWindow}
+                                <div
+                                    class="flex items-center gap-2 text-sm text-muted-foreground"
+                                    aria-live="polite"
+                                >
+                                    <span class="relative flex size-2">
+                                        <span
+                                            class="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-75"
+                                        ></span>
+                                        <span
+                                            class="relative inline-flex size-2 rounded-full bg-green-500"
+                                        ></span>
+                                    </span>
+                                    <span
+                                        >Next update: {formatCountdown(
+                                            livePoll.secondsRemaining,
+                                        )}</span
+                                    >
+                                </div>
+                            {/if}
                             {#each tourShows.reverse() as rows (rows[0].showid)}
                                 <div class="border-b p-5 border-white">
                                     <SetlistView {rows} />

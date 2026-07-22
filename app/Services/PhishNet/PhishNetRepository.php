@@ -110,6 +110,42 @@ class PhishNetRepository
     }
 
     /**
+     * The live-status snapshot the browser polls: a version hash that moves
+     * whenever the current year's setlist data changes, plus the show-window
+     * flag the sync loop last observed. Served straight from cache so a poll
+     * never touches the database or the API.
+     *
+     * @return array{version: ?string, inShowWindow: bool, year: ?int, showdate: ?string, updatedAt: ?string}
+     */
+    public function liveState(): array
+    {
+        return Cache::get($this->key('live'), [
+            'version' => null,
+            'inShowWindow' => false,
+            'year' => null,
+            'showdate' => null,
+            'updatedAt' => null,
+        ]);
+    }
+
+    /**
+     * Record the snapshot the browser polls. Called by the sync loop after each
+     * run, so both the version hash and the window flag stay in step with the
+     * data actually stored. The showdate names the show whose window is open, so
+     * a page can tell whether it is looking at the one currently being played.
+     */
+    public function publishLiveState(?string $version, bool $inShowWindow, int $year, ?string $showdate = null): void
+    {
+        Cache::forever($this->key('live'), [
+            'version' => $version,
+            'inShowWindow' => $inShowWindow,
+            'year' => $year,
+            'showdate' => $showdate,
+            'updatedAt' => now()->toIso8601String(),
+        ]);
+    }
+
+    /**
      * Drop every cached payload derived from the given show year, plus the
      * catalogs whose contents shift whenever new shows are imported.
      */

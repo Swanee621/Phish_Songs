@@ -48,6 +48,37 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Client Polling
+    |--------------------------------------------------------------------------
+    |
+    | The browser polls a lightweight endpoint for a version hash that changes
+    | whenever new setlist data lands, so an open page can refresh itself while
+    | a show is being played. It mirrors the server's own pacing: poll quickly
+    | during a show window, and back off to a slow heartbeat otherwise. The
+    | server decides which interval applies and hands it back in the response,
+    | so the client never has to reason about the show window itself.
+    |
+    */
+
+    'client' => [
+
+        /**
+         * Seconds the browser waits between live-status polls while no show is
+         * underway — a slow heartbeat that mainly exists to notice when a show
+         * window opens.
+         */
+        'interval' => (int) env('CLIENT_SYNC_INTERVAL', 3600),
+
+        /**
+         * Seconds between live-status polls while a show is underway, when the
+         * version hash is actually moving.
+         */
+        'active_interval' => (int) env('CLIENT_SYNC_ACTIVE_INTERVAL', 60),
+
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Show Window
     |--------------------------------------------------------------------------
     |

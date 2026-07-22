@@ -1,8 +1,12 @@
 <script lang="ts">
+    import LoaderCircle from 'lucide-svelte/icons/loader-circle';
     import { SvelteMap } from 'svelte/reactivity';
     import type { SetlistRow } from '@/types/phishnet';
 
-    let { rows }: { rows: SetlistRow[] } = $props();
+    let {
+        rows,
+        awaitingNextSong = false,
+    }: { rows: SetlistRow[]; awaitingNextSong?: boolean } = $props();
 
     const setLabels: Record<string, string> = {
         '1': 'Set 1',
@@ -50,7 +54,7 @@
             </span>
         </h3>
 
-        {#each sets as [key, songs] (key)}
+        {#each sets as [key, songs], setIndex (key)}
             <h4 class="mt-3 mb-1 text-sm font-semibold text-muted-foreground">
                 {setLabels[key] ?? `Set ${key}`}
             </h4>
@@ -60,7 +64,13 @@
                         target="_blank"
                         rel="noopener"
                         class="hover:text-primary hover:underline">{song.song}</a
-                    >{i < songs.length - 1 ? song.trans_mark || ', ' : ''}{/each}
+                    >{i < songs.length - 1 ? song.trans_mark || ', ' : ''}{/each}{#if awaitingNextSong && setIndex === sets.length - 1}<span
+                        class="ml-1 inline-flex items-center align-middle text-muted-foreground"
+                        title="Waiting for the next song…"
+                        aria-label="Waiting for the next song"
+                    >
+                        &nbsp;<LoaderCircle class="size-4 animate-spin" />
+                    </span>{/if}
             </p>
         {/each}
 

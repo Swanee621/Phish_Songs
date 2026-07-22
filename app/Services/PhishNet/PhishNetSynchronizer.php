@@ -182,6 +182,26 @@ class PhishNetSynchronizer
     }
 
     /**
+     * Publish the snapshot the browser polls for live updates.
+     *
+     * The version is the hash the last year sync recorded, so it moves exactly
+     * when the current year's setlist data changes and never touches the API
+     * itself. The showdate is the show whose window is currently open (or null),
+     * which the caller already resolved while pacing its own loop; the window
+     * flag is simply whether that showdate exists.
+     */
+    public function publishLiveState(?string $showdate): void
+    {
+        $year = $this->currentShowYear();
+
+        $version = PhishNetSyncState::query()
+            ->where('key', "setlists.year.{$year}")
+            ->value('hash');
+
+        $this->repository->publishLiveState($version, $showdate !== null, $year, $showdate);
+    }
+
+    /**
      * The tour of the most recent show on record, which is the tour currently
      * in progress (or the one that most recently wrapped).
      *

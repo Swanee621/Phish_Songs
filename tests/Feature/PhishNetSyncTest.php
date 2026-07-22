@@ -13,6 +13,7 @@ use App\Services\PhishNet\VenueTimezone;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use Inertia\Testing\AssertableInertia as Assert;
 
 /*
  * Http::fake() merges successive stubs rather than replacing them, and the
@@ -438,4 +439,106 @@ test('a single sync run imports the live year only', function () {
     $this->artisan('phish:sync --year=2025')->assertSuccessful();
 
     expect(Show::count())->toBe(1);
+});
+
+test('the sync loop publishes a live snapshot for the browser to poll', function () {
+    Queue::fake();
+    fakeSetlistYear(2026, [setlistRow(['showdate' => '2026-07-19', 'showyear' => 2026])]);
+    fakeScheduledShows('2026-07-19', [scheduledShowRow()]);
+
+    $this->travelTo('2026-07-19 21:30:00 America/New_York');
+
+    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+
+    $state = app(PhishNetRepository::class)->liveState();
+
+    expect($state['version'])->not->toBeNull()
+        ->and($state['inShowWindow'])->toBeTrue()
+        ->and($state['year'])->toBe(2026)
+        ->and($state['showdate'])->toBe('2026-07-19');
+});
+
+test('the published version moves when new setlist data lands', function () {
+    Queue::fake();
+    fakeSetlistYear(2026, [setlistRow(['showdate' => '2026-07-19', 'showyear' => 2026])]);
+
+    $this->travelTo('2026-07-19 14:00:00 America/New_York');
+
+    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+    $first = app(PhishNetRepository::class)->liveState()['version'];
+
+    fakeSetlistYear(2026, [
+        setlistRow(['showdate' => '2026-07-19', 'showyear' => 2026]),
+        setlistRow(['uniqueid' => 510413, 'position' => 2, 'song' => 'Bathtub Gin', 'slug' => 'bathtub-gin', 'showdate' => '2026-07-19', 'showyear' => 2026]),
+    ]);
+
+    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+    $second = app(PhishNetRepository::class)->liveState()['version'];
+
+    expect($second)->not->toBe($first);
+});
+
+test('the live endpoint serves the published version and idle poll interval', function () {
+    config(['phishnet.client.interval' => 3600, 'phishnet.client.active_interval' => 60]);
+
+    app(PhishNetRepository::class)->publishLiveState('abc123', false, 2026);
+
+    $this->getJson(route('data.live'))
+        ->assertOk()
+        ->assertJson(['data' => [
+            'version' => 'abc123',
+            'year' => 2026,
+            'inShowWindow' => false,
+            'pollInterval' => 3600,
+        ]]);
+});
+
+test('the live endpoint serves the active poll interval and showdate during a show window', function () {
+    config(['phishnet.client.interval' => 3600, 'phishnet.client.active_interval' => 60]);
+
+    app(PhishNetRepository::class)->publishLiveState('abc123', true, 2026, '2026-07-19');
+
+    $this->getJson(route('data.live'))
+        ->assertOk()
+        ->assertJson(['data' => [
+            'inShowWindow' => true,
+            'pollInterval' => 60,
+            'showdate' => '2026-07-19',
+        ]]);
+});
+
+test('the live endpoint reports no version before any sync has run', function () {
+    $this->getJson(route('data.live'))
+        ->assertOk()
+        ->assertJson(['data' => ['version' => null, 'inShowWindow' => false]]);
+});
+
+test('the recent setlists page passes the client poll intervals to the browser', function () {
+    config([
+        'phishnet.client.interval' => 3600,
+        'phishnet.client.active_interval' => 60,
+    ]);
+
+    $this->get(route('recent-setlists'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('examples/RecentSetlists')
+            ->where('clientSyncInterval', 3600)
+            ->where('clientSyncActiveInterval', 60),
+        );
+});
+
+test('the setlist browser page passes the client poll intervals to the browser', function () {
+    config([
+        'phishnet.client.interval' => 3600,
+        'phishnet.client.active_interval' => 60,
+    ]);
+
+    $this->get(route('setlist-browser'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('examples/SetlistBrowser')
+            ->where('clientSyncInterval', 3600)
+            ->where('clientSyncActiveInterval', 60),
+        );
 });

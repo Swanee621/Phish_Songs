@@ -11,12 +11,18 @@ class PhishNetExamplesController extends Controller
 {
     public function recentSetlists(): Response
     {
-        return Inertia::render('examples/RecentSetlists');
+        return Inertia::render('examples/RecentSetlists', [
+            'clientSyncInterval' => (int) config('phishnet.client.interval'),
+            'clientSyncActiveInterval' => (int) config('phishnet.client.active_interval'),
+        ]);
     }
 
     public function setlistBrowser(): Response
     {
-        return Inertia::render('examples/SetlistBrowser');
+        return Inertia::render('examples/SetlistBrowser', [
+            'clientSyncInterval' => (int) config('phishnet.client.interval'),
+            'clientSyncActiveInterval' => (int) config('phishnet.client.active_interval'),
+        ]);
     }
 
     public function songChecker(): Response
@@ -24,6 +30,8 @@ class PhishNetExamplesController extends Controller
         return Inertia::render('SongChecker', [
             'excludedSongs' => config('services.phishnet.excluded_songs', []),
             'defaultMinPlayed' => config('app.default_min_played'),
+            'clientSyncInterval' => (int) config('phishnet.client.interval'),
+            'clientSyncActiveInterval' => (int) config('phishnet.client.active_interval'),
         ]);
     }
 
@@ -50,5 +58,27 @@ class PhishNetExamplesController extends Controller
     public function songs(PhishNetRepository $repository): JsonResponse
     {
         return response()->json(['data' => $repository->songs()]);
+    }
+
+    /**
+     * The lightweight snapshot the browser polls to decide whether its data is
+     * stale. The version hash moves when new setlist data lands; the poll
+     * interval mirrors the server's own pacing so the page speeds up during a
+     * show and idles otherwise.
+     */
+    public function liveStatus(PhishNetRepository $repository): JsonResponse
+    {
+        $state = $repository->liveState();
+        $inShowWindow = (bool) ($state['inShowWindow'] ?? false);
+
+        return response()->json(['data' => [
+            'version' => $state['version'] ?? null,
+            'year' => $state['year'] ?? null,
+            'showdate' => $state['showdate'] ?? null,
+            'inShowWindow' => $inShowWindow,
+            'pollInterval' => $inShowWindow
+                ? (int) config('phishnet.client.active_interval')
+                : (int) config('phishnet.client.interval'),
+        ]]);
     }
 }

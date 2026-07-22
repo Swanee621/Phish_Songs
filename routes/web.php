@@ -17,6 +17,7 @@ Route::prefix('data')->name('data.')->group(function () {
         ->name('setlists-for-year');
     Route::get('/show-years', [PhishNetExamplesController::class, 'showYears'])->name('show-years');
     Route::get('/songs', [PhishNetExamplesController::class, 'songs'])->name('songs');
+    Route::get('/live', [PhishNetExamplesController::class, 'liveStatus'])->name('live');
 });
 
 require __DIR__.'/settings.php';

@@ -20,7 +20,16 @@
     import { Badge } from '@/components/ui/badge';
     import { Button } from '@/components/ui/button';
     import { Input } from '@/components/ui/input';
+    import { createLivePoll, formatCountdown } from '@/lib/live-poll.svelte';
     import type { ShowYear, SetlistRow } from '@/types/phishnet';
+
+    let {
+        clientSyncInterval = 3600,
+        clientSyncActiveInterval = 60,
+    }: {
+        clientSyncInterval?: number;
+        clientSyncActiveInterval?: number;
+    } = $props();
 
     let years = $state<string[]>([]);
     let yearsLoaded = $state(false);
@@ -39,6 +48,41 @@
         { data: SetlistRow[] }
     >({});
     const dateHttp = useHttp<Record<string, never>, { data: SetlistRow[] }>({});
+    const refreshHttp = useHttp<Record<string, never>, { data: SetlistRow[] }>(
+        {},
+    );
+
+    // Refetch the on-screen date without blanking it out, so a new song slots in
+    // under the spinner rather than flashing a loading state.
+    function refreshActiveDate() {
+        refreshHttp.get(setlistForDate.url(showdate), {
+            onSuccess: (response) => {
+                if (response.data.length) {
+                    rows = response.data;
+                }
+            },
+        });
+    }
+
+    const livePoll = createLivePoll({
+        idleInterval: clientSyncInterval,
+        activeInterval: clientSyncActiveInterval,
+        // Only the show currently being played ever changes; historical dates
+        // are static, so leave them alone.
+        onStale: (status) => {
+            if (rows !== null && showdate !== '' && showdate === status.showdate) {
+                refreshActiveDate();
+            }
+        },
+    });
+
+    // True only while the setlist on screen is the show currently being played.
+    const viewingActiveShow = $derived(
+        livePoll.inShowWindow &&
+            rows !== null &&
+            showdate !== '' &&
+            showdate === livePoll.activeShowdate,
+    );
 
     onMount(() => {
         yearsHttp.get(showYears.url(), {
@@ -59,6 +103,10 @@
                 yearsLoaded = true;
             },
         });
+
+        livePoll.start();
+
+        return () => livePoll.stop();
     });
 
     function loadYear(year: string) {
@@ -203,7 +251,27 @@
                 No setlist found for {showdate}.
             </p>
         {:else if rows}
-            <SetlistView {rows} />
+            {#if viewingActiveShow}
+                <div
+                    class="mb-3 flex items-center gap-2 text-sm text-muted-foreground"
+                    aria-live="polite"
+                >
+                    <span class="relative flex size-2">
+                        <span
+                            class="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-75"
+                        ></span>
+                        <span
+                            class="relative inline-flex size-2 rounded-full bg-green-500"
+                        ></span>
+                    </span>
+                    <span
+                        >Next update: {formatCountdown(
+                            livePoll.secondsRemaining,
+                        )}</span
+                    >
+                </div>
+            {/if}
+            <SetlistView {rows} awaitingNextSong={viewingActiveShow} />
         {/if}
     </div>
 </div>

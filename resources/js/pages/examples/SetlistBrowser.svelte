@@ -21,7 +21,17 @@
     import { Button } from '@/components/ui/button';
     import { Input } from '@/components/ui/input';
     import { createLivePoll, formatCountdown } from '@/lib/live-poll.svelte';
+    import { readPrefsCookie, writePrefsCookie } from '@/lib/prefs-cookie';
     import type { ShowYear, SetlistRow } from '@/types/phishnet';
+
+    type StoredPrefs = {
+        year: string | null;
+        showdate: string;
+    };
+
+    const PREFS_COOKIE_NAME = 'setlist-browser-prefs';
+
+    const savedPrefs = readPrefsCookie<StoredPrefs>(PREFS_COOKIE_NAME);
 
     let {
         clientSyncInterval = 3600,
@@ -37,10 +47,22 @@
     let yearShows = $state<SetlistRow[][]>([]);
     let yearLoading = $state(false);
 
-    let showdate = $state('');
+    let showdate = $state(
+        typeof savedPrefs?.showdate === 'string' ? savedPrefs.showdate : '',
+    );
     let rows = $state<SetlistRow[] | null>(null);
     let loading = $state(false);
     let notFound = $state(false);
+
+    // Holds the cookie write back until the saved year/date have been restored,
+    // so an early unmount can't overwrite them with empty defaults.
+    let prefsHydrated = $state(false);
+
+    // `showdate` follows the date picker as it is typed in; only a date that
+    // actually returned a setlist is worth restoring on the next visit.
+    let loadedShowdate = $state(
+        typeof savedPrefs?.showdate === 'string' ? savedPrefs.showdate : '',
+    );
 
     const yearsHttp = useHttp<Record<string, never>, { data: ShowYear[] }>({});
     const yearShowsHttp = useHttp<
@@ -70,7 +92,11 @@
         // Only the show currently being played ever changes; historical dates
         // are static, so leave them alone.
         onStale: (status) => {
-            if (rows !== null && showdate !== '' && showdate === status.showdate) {
+            if (
+                rows !== null &&
+                showdate !== '' &&
+                showdate === status.showdate
+            ) {
                 refreshActiveDate();
             }
         },
@@ -101,12 +127,43 @@
                     })
                     .sort((a, b) => Number(b) - Number(a));
                 yearsLoaded = true;
+
+                restorePrefs();
             },
         });
 
         livePoll.start();
 
         return () => livePoll.stop();
+    });
+
+    /**
+     * Re-select the year and re-fetch the date the visitor was last looking at.
+     * `loadYear` clears `rows`, so it has to run before `loadDate`.
+     */
+    function restorePrefs() {
+        const savedYear = savedPrefs?.year;
+
+        if (typeof savedYear === 'string' && years.includes(savedYear)) {
+            loadYear(savedYear);
+        }
+
+        if (loadedShowdate) {
+            loadDate(loadedShowdate);
+        }
+
+        prefsHydrated = true;
+    }
+
+    $effect(() => {
+        if (!prefsHydrated) {
+            return;
+        }
+
+        writePrefsCookie<StoredPrefs>(PREFS_COOKIE_NAME, {
+            year: selectedYear,
+            showdate: loadedShowdate,
+        });
     });
 
     function loadYear(year: string) {
@@ -154,6 +211,7 @@
                 const data = response.data;
                 rows = data.length ? data : null;
                 notFound = !data.length;
+                loadedShowdate = data.length ? date : '';
                 loading = false;
             },
         });

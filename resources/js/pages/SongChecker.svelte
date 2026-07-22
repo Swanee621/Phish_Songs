@@ -31,6 +31,7 @@
     } from '@/components/ui/dialog';
     import { Label } from '@/components/ui/label';
     import { createLivePoll, formatCountdown } from '@/lib/live-poll.svelte';
+    import { readPrefsCookie, writePrefsCookie } from '@/lib/prefs-cookie';
     import type { SetlistRow, ShowYear, Song } from '@/types/phishnet';
 
     type ViewMode = 'played' | 'not-played';
@@ -61,45 +62,8 @@
     };
 
     const PREFS_COOKIE_NAME = 'tour-explorer-prefs';
-    const PREFS_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 
-    function readPrefsCookie(): Partial<StoredPrefs> | null {
-        if (typeof document === 'undefined') {
-            return null;
-        }
-
-        const match = document.cookie
-            .split('; ')
-            .find((row) => row.startsWith(`${PREFS_COOKIE_NAME}=`));
-
-        if (!match) {
-            return null;
-        }
-
-        try {
-            const parsed: unknown = JSON.parse(
-                decodeURIComponent(match.slice(PREFS_COOKIE_NAME.length + 1)),
-            );
-
-            return typeof parsed === 'object' && parsed !== null
-                ? parsed
-                : null;
-        } catch {
-            return null;
-        }
-    }
-
-    function writePrefsCookie(prefs: StoredPrefs) {
-        if (typeof document === 'undefined') {
-            return;
-        }
-
-        document.cookie = `${PREFS_COOKIE_NAME}=${encodeURIComponent(
-            JSON.stringify(prefs),
-        )}; path=/; max-age=${PREFS_COOKIE_MAX_AGE}`;
-    }
-
-    const savedPrefs = readPrefsCookie();
+    const savedPrefs = readPrefsCookie<StoredPrefs>(PREFS_COOKIE_NAME);
 
     let {
         excludedSongs = [],
@@ -529,7 +493,7 @@
             return;
         }
 
-        writePrefsCookie({
+        writePrefsCookie<StoredPrefs>(PREFS_COOKIE_NAME, {
             year: currentYear,
             tourid: selectedTour.tourid,
             minTimesPlayed,
@@ -762,11 +726,14 @@
                         </div>
                     </div>
 
-
                     <div class="mt-8 flex flex-col gap-2">
                         <p class="text-sm text-muted-foreground">
-                            {tourShows.length} show{tourShows.length !== 1 ? 's' : ''} &middot;
-                            {notPlayed.length} song{notPlayed.length !== 1 ? 's' : ''} not played
+                            {tourShows.length} show{tourShows.length !== 1
+                                ? 's'
+                                : ''} &middot;
+                            {notPlayed.length} song{notPlayed.length !== 1
+                                ? 's'
+                                : ''} not played
                         </p>
                         <div
                             class="mt-3 grid grid-cols-2 gap-x-4 gap-y-0.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
@@ -782,7 +749,6 @@
                             {/each}
                         </div>
                     </div>
-
                 {/if}
 
                 {#if songCounts.length}

@@ -17,6 +17,14 @@ use Illuminate\Support\Facades\Log;
  */
 class PhishNetSynchronizer
 {
+    /**
+     * The phish.net setlist `transition` code that marks the final song of a
+     * show. Every other entry carries a lower code describing how it runs into
+     * the next song; the last song of the night is the only one tagged with a 6,
+     * which is the closest thing the API has to an "end of show" flag.
+     */
+    protected const FINAL_SONG_TRANSITION = 6;
+
     public function __construct(
         protected PhishNetClient $client,
         protected PhishNetImporter $importer,
@@ -108,30 +116,49 @@ class PhishNetSynchronizer
     }
 
     /**
-     * Whether a scheduled Phish show's window contains the current time.
+     * Whether a show is live right now — inside a scheduled show's window and
+     * not yet finished.
      *
      * This is the pacing signal for the sync loop: it goes true an hour before
      * a typical downbeat rather than at the first song, so the loop is already
-     * polling quickly by the time setlist entries start landing.
+     * polling quickly by the time setlist entries start landing, and it goes
+     * false again the moment the night's final song is marked ({@see
+     * showHasEnded}) rather than idling until the window closes hours later.
      */
     public function inShowWindow(): bool
     {
-        return $this->showdateInWindow() !== null;
+        $showdate = $this->showdateInWindow();
+
+        return $showdate !== null && ! $this->showHasEnded($showdate);
     }
 
     /**
-     * Whether a show appears to be actively underway — inside a scheduled
-     * show's window *and* already carrying setlist entries upstream.
+     * Whether the show on a given date has played its last song.
      *
-     * There is no end-of-show flag, so the window is what bounds this; a
-     * finished show keeps its setlist forever and would otherwise read as live
-     * indefinitely.
+     * The API has no end-of-show flag, but the closing song of every show is
+     * tagged with {@see FINAL_SONG_TRANSITION}, so its presence in the setlist
+     * means the night is over even though the time window is still open.
+     */
+    public function showHasEnded(string $showdate): bool
+    {
+        foreach ($this->client->fetchSetlistForShowdate($showdate) as $entry) {
+            if ((int) ($entry['transition'] ?? 0) === self::FINAL_SONG_TRANSITION) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether a show appears to be actively underway — live (in its window and
+     * not finished) *and* already carrying setlist entries upstream.
      */
     public function showInProgress(): bool
     {
         $showdate = $this->showdateInWindow();
 
-        if ($showdate === null) {
+        if ($showdate === null || $this->showHasEnded($showdate)) {
             return false;
         }
 
@@ -186,11 +213,13 @@ class PhishNetSynchronizer
      *
      * The version is the hash the last year sync recorded, so it moves exactly
      * when the current year's setlist data changes and never touches the API
-     * itself. The showdate is the show whose window is currently open (or null),
-     * which the caller already resolved while pacing its own loop; the window
-     * flag is simply whether that showdate exists.
+     * itself. The showdate is the show scheduled for now (or null) so a page can
+     * tell it is looking at tonight's show right up to the closing song; the
+     * separate live flag is what actually drives pacing and the "live" badges,
+     * and it drops as soon as that show ends even though its showdate lingers
+     * until the window closes.
      */
-    public function publishLiveState(?string $showdate): void
+    public function publishLiveState(?string $showdate, bool $inShowWindow): void
     {
         $year = $this->currentShowYear();
 
@@ -198,7 +227,7 @@ class PhishNetSynchronizer
             ->where('key', "setlists.year.{$year}")
             ->value('hash');
 
-        $this->repository->publishLiveState($version, $showdate !== null, $year, $showdate);
+        $this->repository->publishLiveState($version, $inShowWindow, $year, $showdate);
     }
 
     /**

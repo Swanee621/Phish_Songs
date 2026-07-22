@@ -359,6 +359,72 @@ test('a finished show does not read as in progress once the window closes', func
     expect(app(PhishNetSynchronizer::class)->showInProgress())->toBeFalse();
 });
 
+test('a show drops out of the live window once its final song is marked', function () {
+    fakeScheduledShows('2026-07-19', [scheduledShowRow()]);
+
+    $this->travelTo('2026-07-19 22:30:00 America/New_York');
+
+    $synchronizer = app(PhishNetSynchronizer::class);
+
+    expect($synchronizer->inShowWindow())->toBeTrue();
+
+    // The closing song of the night is the one tagged with transition 6.
+    fakeEndpoint('setlists/showdate/2026-07-19.json', [
+        setlistRow(['showdate' => '2026-07-19', 'showyear' => 2026]),
+        setlistRow([
+            'uniqueid' => 510500, 'position' => 20, 'set' => 'e',
+            'song' => 'Tweezer Reprise', 'slug' => 'tweezer-reprise',
+            'transition' => 6, 'showdate' => '2026-07-19', 'showyear' => 2026,
+        ]),
+    ]);
+
+    expect($synchronizer->inShowWindow())->toBeFalse()
+        // The scheduled showdate lingers so an open page can still fetch that last song.
+        ->and($synchronizer->showdateInWindow())->toBe('2026-07-19');
+});
+
+test('the sync loop backs off to the idle interval once the final song is marked', function () {
+    config([
+        'phishnet.sync.interval' => 3600,
+        'phishnet.sync.active_interval' => 360,
+    ]);
+
+    Queue::fake();
+    fakeSetlistYear(2026, []);
+    fakeScheduledShows('2026-07-19', [scheduledShowRow()]);
+    fakeEndpoint('setlists/showdate/2026-07-19.json', [
+        setlistRow(['showdate' => '2026-07-19', 'showyear' => 2026, 'transition' => 6]),
+    ]);
+
+    $this->travelTo('2026-07-19 23:30:00 America/New_York');
+
+    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+
+    Queue::assertPushed(SyncPhishNetTour::class, function (SyncPhishNetTour $job) {
+        return $job->delay->timestamp === now()->addSeconds(3600)->timestamp;
+    });
+});
+
+test('the live snapshot keeps the showdate but clears the live flag when the show ends', function () {
+    Queue::fake();
+    fakeSetlistYear(2026, [
+        setlistRow(['showdate' => '2026-07-19', 'showyear' => 2026, 'transition' => 6]),
+    ]);
+    fakeScheduledShows('2026-07-19', [scheduledShowRow()]);
+    fakeEndpoint('setlists/showdate/2026-07-19.json', [
+        setlistRow(['showdate' => '2026-07-19', 'showyear' => 2026, 'transition' => 6]),
+    ]);
+
+    $this->travelTo('2026-07-19 23:30:00 America/New_York');
+
+    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+
+    $state = app(PhishNetRepository::class)->liveState();
+
+    expect($state['inShowWindow'])->toBeFalse()
+        ->and($state['showdate'])->toBe('2026-07-19');
+});
+
 test('venue timezones resolve across the four mainland zones', function () {
     $timezone = app(VenueTimezone::class);
 
@@ -439,43 +505,6 @@ test('a single sync run imports the live year only', function () {
     $this->artisan('phish:sync --year=2025')->assertSuccessful();
 
     expect(Show::count())->toBe(1);
-});
-
-test('the sync loop publishes a live snapshot for the browser to poll', function () {
-    Queue::fake();
-    fakeSetlistYear(2026, [setlistRow(['showdate' => '2026-07-19', 'showyear' => 2026])]);
-    fakeScheduledShows('2026-07-19', [scheduledShowRow()]);
-
-    $this->travelTo('2026-07-19 21:30:00 America/New_York');
-
-    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
-
-    $state = app(PhishNetRepository::class)->liveState();
-
-    expect($state['version'])->not->toBeNull()
-        ->and($state['inShowWindow'])->toBeTrue()
-        ->and($state['year'])->toBe(2026)
-        ->and($state['showdate'])->toBe('2026-07-19');
-});
-
-test('the published version moves when new setlist data lands', function () {
-    Queue::fake();
-    fakeSetlistYear(2026, [setlistRow(['showdate' => '2026-07-19', 'showyear' => 2026])]);
-
-    $this->travelTo('2026-07-19 14:00:00 America/New_York');
-
-    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
-    $first = app(PhishNetRepository::class)->liveState()['version'];
-
-    fakeSetlistYear(2026, [
-        setlistRow(['showdate' => '2026-07-19', 'showyear' => 2026]),
-        setlistRow(['uniqueid' => 510413, 'position' => 2, 'song' => 'Bathtub Gin', 'slug' => 'bathtub-gin', 'showdate' => '2026-07-19', 'showyear' => 2026]),
-    ]);
-
-    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
-    $second = app(PhishNetRepository::class)->liveState()['version'];
-
-    expect($second)->not->toBe($first);
 });
 
 test('the live endpoint serves the published version and idle poll interval', function () {

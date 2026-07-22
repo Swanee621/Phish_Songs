@@ -69,12 +69,12 @@ class PhishNetExamplesController extends Controller
     public function liveStatus(PhishNetRepository $repository): JsonResponse
     {
         $state = $repository->liveState();
-        $inShowWindow = (bool) ($state['inShowWindow'] ?? false);
+        $inShowWindow = $state['inShowWindow'];
 
         return response()->json(['data' => [
-            'version' => $state['version'] ?? null,
-            'year' => $state['year'] ?? null,
-            'showdate' => $state['showdate'] ?? null,
+            'version' => $state['version'],
+            'year' => $state['year'],
+            'showdate' => $state['showdate'],
             'inShowWindow' => $inShowWindow,
             'pollInterval' => $inShowWindow
                 ? (int) config('phishnet.client.active_interval')

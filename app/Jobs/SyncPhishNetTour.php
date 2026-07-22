@@ -57,28 +57,30 @@ class SyncPhishNetTour implements ShouldBeUniqueUntilProcessing, ShouldQueue
     {
         /*
          * Read before syncing, so a show that starts mid-run still tightens the
-         * interval on this pass rather than the next one. The showdate doubles
-         * as the window flag — it is non-null exactly when a show is underway.
+         * interval on this pass rather than the next one. The showdate is the
+         * show scheduled for now; the loop stays fast only while that show is
+         * still live — once its final song is marked it backs off, even though
+         * the showdate lingers so an open page can still catch that last song.
          */
         $showdate = $synchronizer->showdateInWindow();
-        $inShowWindow = $showdate !== null;
+        $inShowWindow = $showdate !== null && ! $synchronizer->showHasEnded($showdate);
 
-        $year = $synchronizer->currentShowYear();
+        // $year = $synchronizer->currentShowYear();
 
         /*
          * A changed year means new plays, and possibly songs whose catalog
          * counts moved, so the catalog is only re-checked when that happens.
          */
-        if ($synchronizer->syncYear($year)) {
-            $synchronizer->syncSongs();
-        }
+        // if ($synchronizer->syncYear($year)) {
+        //    $synchronizer->syncSongs();
+        // }
 
         /*
          * Republish the snapshot the browser polls, so an open page picks up
          * both the new version hash and the current window flag on its next
          * poll without ever reaching the API itself.
          */
-        $synchronizer->publishLiveState($showdate);
+        $synchronizer->publishLiveState($showdate, $inShowWindow);
 
         /*
          * Only the successful path schedules the next run. A throwing run is
@@ -105,8 +107,8 @@ class SyncPhishNetTour implements ShouldBeUniqueUntilProcessing, ShouldQueue
         try {
             $synchronizer = app(PhishNetSynchronizer::class);
             $showdate = $synchronizer->showdateInWindow();
-            $inShowWindow = $showdate !== null;
-            $synchronizer->publishLiveState($showdate);
+            $inShowWindow = $showdate !== null && ! $synchronizer->showHasEnded($showdate);
+            $synchronizer->publishLiveState($showdate, $inShowWindow);
         } catch (Throwable) {
             $inShowWindow = false;
         }

@@ -820,7 +820,12 @@
                             {/if}
                             {#each tourShows.reverse() as rows (rows[0].showid)}
                                 <div class="border-b p-5 border-white">
-                                    <SetlistView {rows} />
+                                    <SetlistView
+                                        {rows}
+                                        awaitingNextSong={livePoll.inShowWindow &&
+                                            rows[0].showdate ===
+                                                livePoll.activeShowdate}
+                                    />
                                 </div>
                             {/each}
                         </div>

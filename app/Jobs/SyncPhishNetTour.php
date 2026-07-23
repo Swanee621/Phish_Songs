@@ -65,15 +65,15 @@ class SyncPhishNetTour implements ShouldBeUniqueUntilProcessing, ShouldQueue
         $showdate = $synchronizer->showdateInWindow();
         $inShowWindow = $showdate !== null && ! $synchronizer->showHasEnded($showdate);
 
-        // $year = $synchronizer->currentShowYear();
+        $year = $synchronizer->currentShowYear();
 
         /*
          * A changed year means new plays, and possibly songs whose catalog
          * counts moved, so the catalog is only re-checked when that happens.
          */
-        // if ($synchronizer->syncYear($year)) {
-        //    $synchronizer->syncSongs();
-        // }
+        if ($synchronizer->syncYear($year)) {
+           $synchronizer->syncSongs();
+        }
 
         /*
          * Republish the snapshot the browser polls, so an open page picks up

@@ -116,10 +116,11 @@
         <p class="text-sm text-muted-foreground">No setlist data available.</p>
     {:else}
         <div class="max-w-2xl">
-            {#each shows as rows, showIndex (rows[0].showid)}
+            {#each shows as rows (rows[0].showid)}
                 <SetlistView
                     {rows}
-                    awaitingNextSong={showIndex === 0 && livePoll.inShowWindow}
+                    awaitingNextSong={livePoll.inShowWindow &&
+                        rows[0].showdate === livePoll.activeShowdate}
                 />
             {/each}
         </div>

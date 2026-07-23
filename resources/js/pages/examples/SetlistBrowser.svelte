@@ -77,7 +77,7 @@
     // Refetch the on-screen date without blanking it out, so a new song slots in
     // under the spinner rather than flashing a loading state.
     function refreshActiveDate() {
-        refreshHttp.get(setlistForDate.url(showdate), {
+        refreshHttp.get(setlistForDate.url(loadedShowdate), {
             onSuccess: (response) => {
                 if (response.data.length) {
                     rows = response.data;
@@ -94,8 +94,8 @@
         onStale: (status) => {
             if (
                 rows !== null &&
-                showdate !== '' &&
-                showdate === status.showdate
+                loadedShowdate !== '' &&
+                loadedShowdate === status.showdate
             ) {
                 refreshActiveDate();
             }
@@ -106,8 +106,8 @@
     const viewingActiveShow = $derived(
         livePoll.inShowWindow &&
             rows !== null &&
-            showdate !== '' &&
-            showdate === livePoll.activeShowdate,
+            loadedShowdate !== '' &&
+            loadedShowdate === livePoll.activeShowdate,
     );
 
     onMount(() => {

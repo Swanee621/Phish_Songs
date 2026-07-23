@@ -425,6 +425,115 @@ test('the live snapshot keeps the showdate but clears the live flag when the sho
         ->and($state['showdate'])->toBe('2026-07-19');
 });
 
+test('the show stays highlighted through the morning after it is played', function () {
+    Show::factory()->create([
+        'showdate' => '2026-07-19',
+        'showyear' => 2026,
+        'venueid' => Venue::factory()->create(['state' => 'NY']),
+    ]);
+
+    $this->travelTo('2026-07-20 09:00:00 America/New_York');
+
+    expect(app(PhishNetSynchronizer::class)->highlightWindow())->toBe([
+        'showdate' => '2026-07-19',
+        'until' => '2026-07-20T14:00:00-04:00',
+    ]);
+});
+
+test('the highlight expires at 2pm on the day after the show', function () {
+    Show::factory()->create([
+        'showdate' => '2026-07-19',
+        'showyear' => 2026,
+        'venueid' => Venue::factory()->create(['state' => 'NY']),
+    ]);
+
+    $this->travelTo('2026-07-20 14:00:00 America/New_York');
+
+    expect(app(PhishNetSynchronizer::class)->highlightWindow())->toBe([
+        'showdate' => null,
+        'until' => null,
+    ]);
+});
+
+test('the highlight cutoff is read in the venues own timezone', function () {
+    Show::factory()->create([
+        'showdate' => '2026-07-19',
+        'showyear' => 2026,
+        'venueid' => Venue::factory()->create(['state' => 'CA']),
+    ]);
+
+    /** 2pm Eastern is only 11am at the venue, so the show is still current. */
+    $this->travelTo('2026-07-20 14:00:00 America/New_York');
+
+    expect(app(PhishNetSynchronizer::class)->highlightWindow()['showdate'])
+        ->toBe('2026-07-19');
+
+    $this->travelTo('2026-07-20 14:00:00 America/Los_Angeles');
+
+    expect(app(PhishNetSynchronizer::class)->highlightWindow()['showdate'])
+        ->toBeNull();
+});
+
+test('the highlight names the most recent show when several have been played', function () {
+    $venue = Venue::factory()->create(['state' => 'NY']);
+
+    foreach (['2026-07-17', '2026-07-18', '2026-07-19'] as $showdate) {
+        Show::factory()->create([
+            'showdate' => $showdate,
+            'showyear' => 2026,
+            'venueid' => $venue,
+        ]);
+    }
+
+    $this->travelTo('2026-07-20 09:00:00 America/New_York');
+
+    expect(app(PhishNetSynchronizer::class)->highlightWindow()['showdate'])
+        ->toBe('2026-07-19');
+});
+
+test('there is nothing to highlight before any show has been imported', function () {
+    expect(app(PhishNetSynchronizer::class)->highlightWindow())->toBe([
+        'showdate' => null,
+        'until' => null,
+    ]);
+});
+
+test('the live endpoint serves the highlight window to the browser', function () {
+    app(PhishNetRepository::class)->publishLiveState(
+        'abc123',
+        false,
+        2026,
+        null,
+        '2026-07-19',
+        '2026-07-20T14:00:00-04:00',
+    );
+
+    $this->getJson(route('data.live'))
+        ->assertOk()
+        ->assertJson(['data' => [
+            'highlightShowdate' => '2026-07-19',
+            'highlightUntil' => '2026-07-20T14:00:00-04:00',
+        ]]);
+});
+
+test('the live endpoint reports no highlight against a snapshot published before the field existed', function () {
+    Cache::forever('phishnet.live', [
+        'version' => 'abc123',
+        'inShowWindow' => false,
+        'year' => 2026,
+        'showdate' => null,
+        'updatedAt' => now()->toIso8601String(),
+    ]);
+
+    $this->getJson(route('data.live'))
+        ->assertOk()
+        ->assertJson(['data' => [
+            'version' => 'abc123',
+            'highlightShowdate' => null,
+            'highlightUntil' => null,
+        ]]);
+});
+
 test('venue timezones resolve across the four mainland zones', function () {
     $timezone = app(VenueTimezone::class);
 

@@ -227,7 +227,58 @@ class PhishNetSynchronizer
             ->where('key', "setlists.year.{$year}")
             ->value('hash');
 
-        $this->repository->publishLiveState($version, $inShowWindow, $year, $showdate);
+        $highlight = $this->highlightWindow();
+
+        $this->repository->publishLiveState(
+            $version,
+            $inShowWindow,
+            $year,
+            $showdate,
+            $highlight['showdate'],
+            $highlight['until'],
+        );
+    }
+
+    /**
+     * The show the browser should still be treating as the current one, and the
+     * instant that stops being true.
+     *
+     * A show stays "current" well past its final song — until
+     * `show_window.highlight_end_hour` the following day, in the venue's own
+     * time — so that someone opening the page the next morning still sees last
+     * night highlighted rather than a page that quietly reset overnight.
+     *
+     * The expiry is published as an absolute instant rather than a flag because
+     * the snapshot is only rewritten when the sync loop runs, which during the
+     * idle hours is once an hour. Handing the browser the deadline lets it
+     * expire the highlight on time regardless of when this last ran.
+     *
+     * @return array{showdate: ?string, until: ?string}
+     */
+    public function highlightWindow(): array
+    {
+        $show = Show::query()
+            ->with('venue')
+            ->where('artistid', 1)
+            ->orderByDesc('showdate')
+            ->first();
+
+        if ($show === null) {
+            return ['showdate' => null, 'until' => null];
+        }
+
+        $until = Carbon::parse($show->showdate, $this->timezone->resolve($show->venue?->state))
+            ->addDay()
+            ->setTime((int) config('phishnet.show_window.highlight_end_hour'), 0);
+
+        if (now()->greaterThanOrEqualTo($until)) {
+            return ['showdate' => null, 'until' => null];
+        }
+
+        return [
+            'showdate' => (string) $show->showdate,
+            'until' => $until->toIso8601String(),
+        ];
     }
 
     /**

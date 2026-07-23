@@ -22,18 +22,12 @@
     const OUTLINE_BUTTON_CLASSES =
         'inline-flex h-10 items-center justify-center gap-2 rounded-md border border-input bg-background px-4 text-sm font-medium whitespace-nowrap transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 md:h-8 md:px-3 md:text-xs';
 
-    /**
-     * The phish.net transition code on a set's closing song. From this code up
-     * the band is between sets, so nothing is on stage.
-     */
-    const SET_CLOSING_TRANSITION = 4;
-
-    /** Played at some point during the show going on right now. */
+    /** Played at some point during the show being treated as current. */
     const PLAYED_TONIGHT_CLASSES =
         'bg-green-500/10 text-green-700 dark:text-green-400';
 
-    /** On stage at this very moment. */
-    const NOW_PLAYING_CLASSES =
+    /** The most recent song of that show: on stage now, or the closer. */
+    const LATEST_SONG_CLASSES =
         'bg-amber-500/15 font-medium text-amber-700 ring-1 ring-amber-500/40 dark:text-amber-300';
 
     const badgeClasses = (isSelected: boolean): string =>
@@ -194,18 +188,16 @@
     );
 
     /**
-     * The date of the show being played right now, or null once it has ended.
-     *
-     * `activeShowdate` lingers after the closing song so a page can still catch
-     * it, so the window flag is what actually decides whether a show is on.
+     * The show the page is treating as the current one. That is the show being
+     * played while one is on, and stays put afterwards until the server's
+     * cutoff — 2pm venue time the next day — so the page still reads as "last
+     * night's show" when it is opened in the morning.
      */
-    const liveShowdate = $derived(
-        livePoll.inShowWindow ? livePoll.activeShowdate : null,
-    );
+    const liveShowdate = $derived(livePoll.highlightShowdate);
 
     /**
      * Rows from that show, and only when it belongs to the tour on screen —
-     * browsing away to another tour turns every live treatment below off.
+     * browsing away to another tour turns every highlight below off.
      */
     const liveShowRows = $derived(
         liveShowdate === null
@@ -216,19 +208,12 @@
     const liveSlugs = $derived(new SvelteSet(liveShowRows.map((r) => r.slug)));
 
     /**
-     * The song on stage: the newest entry of the live show, unless it carries a
-     * set-closing transition, which means the band is on a break rather than
-     * part way through a song.
+     * The newest entry of that show: the song on stage while the show is being
+     * played, and the one it closed with afterwards. It holds its colour for
+     * the same grace period as the rest, so nothing shifts under a page left
+     * open overnight.
      */
-    const nowPlayingSlug = $derived.by(() => {
-        const latest = liveShowRows.at(-1);
-
-        if (!latest || latest.transition >= SET_CLOSING_TRANSITION) {
-            return null;
-        }
-
-        return latest.slug;
-    });
+    const latestSongSlug = $derived(liveShowRows.at(-1)?.slug ?? null);
 
     /**
      * Tailwind puts no weight on the order classes appear in the attribute, so
@@ -236,8 +221,8 @@
      * callers swap them in rather than append them.
      */
     function liveClasses(slug: string): string {
-        if (slug === nowPlayingSlug) {
-            return NOW_PLAYING_CLASSES;
+        if (slug === latestSongSlug) {
+            return LATEST_SONG_CLASSES;
         }
 
         return liveSlugs.has(slug) ? PLAYED_TONIGHT_CLASSES : '';
@@ -301,10 +286,10 @@
         }
 
         /*
-         * Tonight's plays are deliberately left out, so a song first played
-         * during the show stays on this list until the show is over instead of
-         * vanishing out from under whoever is watching it. It is lit up in the
-         * meantime, and drops off on its own once the show ends and
+         * The current show's plays are deliberately left out, so a song it
+         * debuts stays on this list rather than vanishing out from under
+         * whoever is watching. It is lit up in the meantime, and drops off on
+         * its own when the grace period ends the next afternoon and
          * `liveShowdate` goes null.
          */
         const playedSlugs = new SvelteSet(

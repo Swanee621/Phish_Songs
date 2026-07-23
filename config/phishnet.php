@@ -116,6 +116,17 @@ return [
         'start_hour' => (int) env('PHISHNET_SHOW_START_HOUR', 19),
         'end_hour' => (int) env('PHISHNET_SHOW_END_HOUR', 1),
 
+        /**
+         * The hour on the day *after* a show, in the venue's local time, when
+         * the browser stops treating that show as the current one.
+         *
+         * This is a display concern rather than a sync one: the loop still
+         * winds down as soon as the closing song lands, but a page opened the
+         * next morning keeps the show's songs highlighted and keeps the ones it
+         * debuted on the not-played list until this hour passes.
+         */
+        'highlight_end_hour' => (int) env('PHISHNET_SHOW_HIGHLIGHT_END_HOUR', 14),
+
     ],
 
 ];

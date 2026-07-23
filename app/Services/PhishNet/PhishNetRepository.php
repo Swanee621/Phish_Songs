@@ -115,17 +115,19 @@ class PhishNetRepository
      * flag the sync loop last observed. Served straight from cache so a poll
      * never touches the database or the API.
      *
-     * @return array{version: ?string, inShowWindow: bool, year: ?int, showdate: ?string, updatedAt: ?string}
+     * @return array{version: ?string, inShowWindow: bool, year: ?int, showdate: ?string, highlightShowdate: ?string, highlightUntil: ?string, updatedAt: ?string}
      */
     public function liveState(): array
     {
-        return Cache::get($this->key('live'), [
+        return Cache::get($this->key('live'), []) + [
             'version' => null,
             'inShowWindow' => false,
             'year' => null,
             'showdate' => null,
+            'highlightShowdate' => null,
+            'highlightUntil' => null,
             'updatedAt' => null,
-        ]);
+        ];
     }
 
     /**
@@ -133,14 +135,27 @@ class PhishNetRepository
      * run, so both the version hash and the window flag stay in step with the
      * data actually stored. The showdate names the show whose window is open, so
      * a page can tell whether it is looking at the one currently being played.
+     *
+     * `highlightShowdate` outlives that flag: it names the show a page should
+     * still be treating as the current one, and `highlightUntil` is the instant
+     * it stops — the morning-after grace period, resolved in venue time by
+     * {@see PhishNetSynchronizer::highlightWindow()}.
      */
-    public function publishLiveState(?string $version, bool $inShowWindow, int $year, ?string $showdate = null): void
-    {
+    public function publishLiveState(
+        ?string $version,
+        bool $inShowWindow,
+        int $year,
+        ?string $showdate = null,
+        ?string $highlightShowdate = null,
+        ?string $highlightUntil = null,
+    ): void {
         Cache::forever($this->key('live'), [
             'version' => $version,
             'inShowWindow' => $inShowWindow,
             'year' => $year,
             'showdate' => $showdate,
+            'highlightShowdate' => $highlightShowdate,
+            'highlightUntil' => $highlightUntil,
             'updatedAt' => now()->toIso8601String(),
         ]);
     }

@@ -75,6 +75,8 @@ class PhishNetExamplesController extends Controller
             'version' => $state['version'],
             'year' => $state['year'],
             'showdate' => $state['showdate'],
+            'highlightShowdate' => $state['highlightShowdate'],
+            'highlightUntil' => $state['highlightUntil'],
             'inShowWindow' => $inShowWindow,
             'pollInterval' => $inShowWindow
                 ? (int) config('phishnet.client.active_interval')

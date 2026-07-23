@@ -5,6 +5,10 @@ type LiveStatus = {
     version: string | null;
     year: number | null;
     showdate: string | null;
+    /** The show a page should still present as the current one, if any. */
+    highlightShowdate: string | null;
+    /** ISO 8601 instant at which that stops being true. */
+    highlightUntil: string | null;
     inShowWindow: boolean;
     pollInterval: number;
 };
@@ -43,6 +47,15 @@ export function createLivePoll(options: LivePollOptions) {
     let inShowWindow = $state(false);
     let activeShowdate = $state<string | null>(null);
     let secondsRemaining = $state(0);
+    let highlightShowdate = $state<string | null>(null);
+    let highlightUntilMs = $state<number | null>(null);
+
+    /*
+     * The highlight can outlive the poll that announced it — idle polls are an
+     * hour apart — so its deadline is checked against a clock that ticks on its
+     * own rather than only being re-evaluated when a response lands.
+     */
+    let nowMs = $state(Date.now());
 
     function schedule(seconds: number) {
         if (stopped) {
@@ -65,6 +78,12 @@ export function createLivePoll(options: LivePollOptions) {
                 const status = response.data;
                 inShowWindow = status.inShowWindow;
                 activeShowdate = status.showdate;
+                highlightShowdate = status.highlightShowdate;
+                highlightUntilMs =
+                    status.highlightUntil === null
+                        ? null
+                        : Date.parse(status.highlightUntil);
+                nowMs = Date.now();
 
                 // Skip the first observation (baseline) and any change we can't
                 // act on, then hand the moved version off to the caller.
@@ -96,9 +115,10 @@ export function createLivePoll(options: LivePollOptions) {
             stopped = false;
 
             countdownTimer = setInterval(() => {
+                nowMs = Date.now();
                 secondsRemaining = Math.max(
                     0,
-                    Math.ceil((nextPollAt - Date.now()) / 1000),
+                    Math.ceil((nextPollAt - nowMs) / 1000),
                 );
             }, 1000);
 
@@ -120,6 +140,18 @@ export function createLivePoll(options: LivePollOptions) {
         },
         get activeShowdate() {
             return activeShowdate;
+        },
+        /**
+         * The show a page should still be treating as the current one — the one
+         * being played, and then last night's until the server's cutoff passes.
+         * Null once it has, without waiting for another poll to say so.
+         */
+        get highlightShowdate() {
+            if (highlightUntilMs === null || nowMs >= highlightUntilMs) {
+                return null;
+            }
+
+            return highlightShowdate;
         },
         get secondsRemaining() {
             return secondsRemaining;

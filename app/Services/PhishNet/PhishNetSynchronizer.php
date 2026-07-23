@@ -3,6 +3,7 @@
 namespace App\Services\PhishNet;
 
 use App\Models\PhishNetSyncState;
+use App\Models\SetlistEntry;
 use App\Models\Show;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
@@ -267,10 +268,25 @@ class PhishNetSynchronizer
             return null;
         }
 
-        $rows = array_values(array_filter(
-            $this->repository->setlistForShowdate($showdate),
-            fn (array $row): bool => (int) ($row['artistid'] ?? 0) === 1,
-        ));
+        /*
+         * Read straight from the database rather than through the cached
+         * setlist payload. That cache is read-through and cleared on import, so
+         * a reader that missed just before an import can write its now-stale
+         * rows back into the cleared key and pin the header to the previous
+         * song until the song after it lands. This runs once per sync, not per
+         * request, so the query costs nothing worth caching.
+         */
+        $rows = SetlistEntry::query()
+            ->whereIn('showid', Show::query()->where('showdate', $showdate)->pluck('showid'))
+            ->where('artistid', 1)
+            ->orderBy('position')
+            ->get(['song', 'trans_mark', 'transition'])
+            ->map(fn (SetlistEntry $entry): array => [
+                'song' => (string) $entry->song,
+                'trans_mark' => (string) $entry->trans_mark,
+                'transition' => (int) $entry->transition,
+            ])
+            ->all();
 
         if ($rows === []) {
             return null;

@@ -27,7 +27,7 @@
     const PLAYED_TONIGHT_CLASSES =
         'bg-green-500/10 text-green-700 dark:text-green-400';
 
-    /** The most recent song of that show: on stage now, or the closer. */
+    /** On stage right now — replaced by the green above once the show ends. */
     const LATEST_SONG_CLASSES =
         'bg-amber-500/15 font-medium text-amber-700 ring-1 ring-amber-500/40 dark:text-amber-300';
 
@@ -249,12 +249,15 @@
     const liveSlugs = $derived(new SvelteSet(liveShowRows.map((r) => r.slug)));
 
     /**
-     * The newest entry of that show: the song on stage while the show is being
-     * played, and the one it closed with afterwards. It holds its colour for
-     * the same grace period as the rest, so nothing shifts under a page left
-     * open overnight.
+     * The song on stage, which is the newest entry of the show being played.
+     *
+     * Only while the show is actually on: once it ends, this song stops being
+     * the exception and joins the rest of the night in green, which stays put
+     * until the grace period closes the next afternoon.
      */
-    const latestSongSlug = $derived(liveShowRows.at(-1)?.slug ?? null);
+    const latestSongSlug = $derived(
+        livePoll.inShowWindow ? (liveShowRows.at(-1)?.slug ?? null) : null,
+    );
 
     /**
      * Tailwind puts no weight on the order classes appear in the attribute, so

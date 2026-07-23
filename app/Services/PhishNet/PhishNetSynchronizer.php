@@ -25,6 +25,13 @@ class PhishNetSynchronizer
      */
     protected const FINAL_SONG_TRANSITION = 6;
 
+    /**
+     * The lowest phish.net `transition` code that closes a set. From this code
+     * up — a setbreak, the gap before an encore, the end of the show — the band
+     * is off stage, so there is nothing currently being played.
+     */
+    protected const SET_CLOSING_TRANSITION = 4;
+
     public function __construct(
         protected PhishNetClient $client,
         protected PhishNetImporter $importer,
@@ -249,6 +256,10 @@ class PhishNetSynchronizer
      * band never stopped playing. So a jam three songs deep reads as
      * "Tweezer > Maze -> Possum" rather than just its tail, while a clean stop
      * before the current song ends the run there.
+     *
+     * Null between sets: once the newest entry carries a set-closing transition
+     * nobody is playing, and holding the last run on screen through a half hour
+     * setbreak reads as a stuck header rather than as news.
      */
     public function currentSongRun(?string $showdate): ?string
     {
@@ -266,6 +277,11 @@ class PhishNetSynchronizer
         }
 
         $last = count($rows) - 1;
+
+        if ((int) $rows[$last]['transition'] >= self::SET_CLOSING_TRANSITION) {
+            return null;
+        }
+
         $first = $last;
 
         while ($first > 0 && str_contains((string) $rows[$first - 1]['trans_mark'], '>')) {

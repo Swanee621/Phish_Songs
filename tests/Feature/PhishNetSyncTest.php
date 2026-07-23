@@ -562,6 +562,38 @@ test('the whole set is the run when every song has segued', function () {
         ->toBe('Sample > Tweezer > Possum');
 });
 
+test('the song run is blank between sets', function () {
+    fakeSetlistYear(2025, [
+        array_merge(runRow(1, 'Tweezer', ' > '), ['transition' => 2]),
+        array_merge(runRow(2, 'Possum', ''), ['transition' => 4]),
+    ]);
+
+    app(PhishNetSynchronizer::class)->syncYear(2025);
+
+    expect(app(PhishNetSynchronizer::class)->currentSongRun('2025-07-25'))->toBeNull();
+});
+
+test('the song run is blank once the show is over', function () {
+    fakeSetlistYear(2025, [
+        array_merge(runRow(1, 'Possum', ''), ['transition' => 6]),
+    ]);
+
+    app(PhishNetSynchronizer::class)->syncYear(2025);
+
+    expect(app(PhishNetSynchronizer::class)->currentSongRun('2025-07-25'))->toBeNull();
+});
+
+test('the song run comes back when the next set starts', function () {
+    fakeSetlistYear(2025, [
+        array_merge(runRow(1, 'Tweezer', ''), ['transition' => 4]),
+        array_merge(runRow(2, 'Possum', ''), ['transition' => 1]),
+    ]);
+
+    app(PhishNetSynchronizer::class)->syncYear(2025);
+
+    expect(app(PhishNetSynchronizer::class)->currentSongRun('2025-07-25'))->toBe('Possum');
+});
+
 test('there is no song run for a date with no setlist, or no date at all', function () {
     expect(app(PhishNetSynchronizer::class)->currentSongRun('2025-07-25'))->toBeNull()
         ->and(app(PhishNetSynchronizer::class)->currentSongRun(null))->toBeNull();

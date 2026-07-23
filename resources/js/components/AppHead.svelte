@@ -13,7 +13,4 @@
     const fullTitle = $derived(title ? `${title} - ${appName}` : appName);
 </script>
 
-<svelte:head>
-    <title>{fullTitle}</title>
-    {@render children?.()}
-</svelte:head>
+<svelte:head><title>{fullTitle}</title>{@render children?.()}</svelte:head>

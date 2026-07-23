@@ -22,6 +22,20 @@
     const OUTLINE_BUTTON_CLASSES =
         'inline-flex h-10 items-center justify-center gap-2 rounded-md border border-input bg-background px-4 text-sm font-medium whitespace-nowrap transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 md:h-8 md:px-3 md:text-xs';
 
+    /**
+     * The phish.net transition code on a set's closing song. From this code up
+     * the band is between sets, so nothing is on stage.
+     */
+    const SET_CLOSING_TRANSITION = 4;
+
+    /** Played at some point during the show going on right now. */
+    const PLAYED_TONIGHT_CLASSES =
+        'bg-green-500/10 text-green-700 dark:text-green-400';
+
+    /** On stage at this very moment. */
+    const NOW_PLAYING_CLASSES =
+        'bg-amber-500/15 font-medium text-amber-700 ring-1 ring-amber-500/40 dark:text-amber-300';
+
     const badgeClasses = (isSelected: boolean): string =>
         `${BADGE_CLASSES} ${
             isSelected
@@ -179,6 +193,56 @@
         tourRows.filter((row) => !excludedSet.has(row.slug)),
     );
 
+    /**
+     * The date of the show being played right now, or null once it has ended.
+     *
+     * `activeShowdate` lingers after the closing song so a page can still catch
+     * it, so the window flag is what actually decides whether a show is on.
+     */
+    const liveShowdate = $derived(
+        livePoll.inShowWindow ? livePoll.activeShowdate : null,
+    );
+
+    /**
+     * Rows from that show, and only when it belongs to the tour on screen —
+     * browsing away to another tour turns every live treatment below off.
+     */
+    const liveShowRows = $derived(
+        liveShowdate === null
+            ? []
+            : tourRows.filter((row) => row.showdate === liveShowdate),
+    );
+
+    const liveSlugs = $derived(new SvelteSet(liveShowRows.map((r) => r.slug)));
+
+    /**
+     * The song on stage: the newest entry of the live show, unless it carries a
+     * set-closing transition, which means the band is on a break rather than
+     * part way through a song.
+     */
+    const nowPlayingSlug = $derived.by(() => {
+        const latest = liveShowRows.at(-1);
+
+        if (!latest || latest.transition >= SET_CLOSING_TRANSITION) {
+            return null;
+        }
+
+        return latest.slug;
+    });
+
+    /**
+     * Tailwind puts no weight on the order classes appear in the attribute, so
+     * these deliberately avoid restating a colour the base classes already set;
+     * callers swap them in rather than append them.
+     */
+    function liveClasses(slug: string): string {
+        if (slug === nowPlayingSlug) {
+            return NOW_PLAYING_CLASSES;
+        }
+
+        return liveSlugs.has(slug) ? PLAYED_TONIGHT_CLASSES : '';
+    }
+
     const tourShows = $derived.by(() => {
         const grouped = new SvelteMap<number, SetlistRow[]>();
 
@@ -236,7 +300,18 @@
             return [];
         }
 
-        const playedSlugs = new SvelteSet(songCounts.map((row) => row.slug));
+        /*
+         * Tonight's plays are deliberately left out, so a song first played
+         * during the show stays on this list until the show is over instead of
+         * vanishing out from under whoever is watching it. It is lit up in the
+         * meantime, and drops off on its own once the show ends and
+         * `liveShowdate` goes null.
+         */
+        const playedSlugs = new SvelteSet(
+            countedRows
+                .filter((row) => row.showdate !== liveShowdate)
+                .map((row) => row.slug),
+        );
 
         return allSongs
             .filter(
@@ -650,7 +725,9 @@
                                 <button
                                     type="button"
                                     onclick={() => openSongDialog(row.slug)}
-                                    class="flex items-baseline cursor-pointer justify-between gap-2 rounded p-3 text-left text-base hover:bg-accent hover:text-primary"
+                                    class="flex items-baseline cursor-pointer justify-between gap-2 rounded p-3 text-left text-base hover:bg-accent hover:text-primary {liveClasses(
+                                        row.slug,
+                                    )}"
                                 >
                                     <span class="truncate">{row.song}</span>
                                     <span
@@ -740,7 +817,9 @@
                                 <button
                                     type="button"
                                     onclick={() => openSongDialog(song.slug)}
-                                    class="truncate rounded cursor-pointer p-3 text-left text-base text-muted-foreground hover:bg-accent hover:text-primary"
+                                    class="truncate rounded cursor-pointer p-3 text-left text-base hover:bg-accent hover:text-primary {liveClasses(
+                                        song.slug,
+                                    ) || 'text-muted-foreground'}"
                                 >
                                     {song.song}
                                 </button>

@@ -9,8 +9,27 @@ type LiveStatus = {
     highlightShowdate: string | null;
     /** ISO 8601 instant at which that stops being true. */
     highlightUntil: string | null;
+    /** The run of songs on stage, already strung together across segues. */
+    currentSongs: string | null;
     inShowWindow: boolean;
     pollInterval: number;
+};
+
+/**
+ * The last snapshot any poll on the page observed.
+ *
+ * The app header shows what is on stage, but it lives in the layout, which has
+ * no poll of its own — and every page that needs live data already runs one, so
+ * it reads whatever theirs last saw rather than opening a second poll to ask
+ * the same question. A page that never polls simply leaves the header empty.
+ */
+let sharedStatus = $state<LiveStatus | null>(null);
+
+export const sharedLiveStatus = {
+    /** Only while a show is actually being played. */
+    get currentSongs(): string | null {
+        return sharedStatus?.inShowWindow ? sharedStatus.currentSongs : null;
+    },
 };
 
 type LivePollOptions = {
@@ -76,6 +95,7 @@ export function createLivePoll(options: LivePollOptions) {
         http.get(liveStatus.url(), {
             onSuccess: (response) => {
                 const status = response.data;
+                sharedStatus = status;
                 inShowWindow = status.inShowWindow;
                 activeShowdate = status.showdate;
                 highlightShowdate = status.highlightShowdate;

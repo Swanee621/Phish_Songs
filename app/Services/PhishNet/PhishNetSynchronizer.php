@@ -236,7 +236,53 @@ class PhishNetSynchronizer
             $showdate,
             $highlight['showdate'],
             $highlight['until'],
+            $inShowWindow ? $this->currentSongRun($showdate) : null,
         );
+    }
+
+    /**
+     * What is on stage right now, as one line: the newest setlist entry, plus
+     * any songs before it that ran straight into the next one.
+     *
+     * phish.net separates songs with only four marks — `", "`, `""`, `" > "`
+     * and `" -> "` — and the two carrying a chevron are the ones meaning the
+     * band never stopped playing. So a jam three songs deep reads as
+     * "Tweezer > Maze -> Possum" rather than just its tail, while a clean stop
+     * before the current song ends the run there.
+     */
+    public function currentSongRun(?string $showdate): ?string
+    {
+        if ($showdate === null) {
+            return null;
+        }
+
+        $rows = array_values(array_filter(
+            $this->repository->setlistForShowdate($showdate),
+            fn (array $row): bool => (int) ($row['artistid'] ?? 0) === 1,
+        ));
+
+        if ($rows === []) {
+            return null;
+        }
+
+        $last = count($rows) - 1;
+        $first = $last;
+
+        while ($first > 0 && str_contains((string) $rows[$first - 1]['trans_mark'], '>')) {
+            $first--;
+        }
+
+        $run = '';
+
+        for ($index = $first; $index <= $last; $index++) {
+            $run .= $rows[$index]['song'];
+
+            if ($index < $last) {
+                $run .= $rows[$index]['trans_mark'];
+            }
+        }
+
+        return $run;
     }
 
     /**

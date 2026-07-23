@@ -498,6 +498,251 @@ test('there is nothing to highlight before any show has been imported', function
     ]);
 });
 
+function runRow(int $position, string $song, string $transMark): array
+{
+    return setlistRow([
+        'uniqueid' => 600000 + $position,
+        'songid' => 300 + $position,
+        'position' => $position,
+        'song' => $song,
+        'slug' => strtolower($song),
+        'trans_mark' => $transMark,
+    ]);
+}
+
+test('the current song run strings segues together back to the last clean stop', function () {
+    fakeSetlistYear(2025, [
+        runRow(1, 'Sample', ', '),
+        runRow(2, 'Tweezer', ' > '),
+        runRow(3, 'Maze', ' -> '),
+        runRow(4, 'Possum', ''),
+    ]);
+
+    app(PhishNetSynchronizer::class)->syncYear(2025);
+
+    expect(app(PhishNetSynchronizer::class)->currentSongRun('2025-07-25'))
+        ->toBe('Tweezer > Maze -> Possum');
+});
+
+test('a comma before the newest song leaves it standing alone', function () {
+    fakeSetlistYear(2025, [
+        runRow(1, 'Sample', ' > '),
+        runRow(2, 'Tweezer', ', '),
+        runRow(3, 'Possum', ''),
+    ]);
+
+    app(PhishNetSynchronizer::class)->syncYear(2025);
+
+    expect(app(PhishNetSynchronizer::class)->currentSongRun('2025-07-25'))
+        ->toBe('Possum');
+});
+
+test('a blank mark before the newest song leaves it standing alone', function () {
+    fakeSetlistYear(2025, [
+        runRow(1, 'Sample', ''),
+        runRow(2, 'Possum', ''),
+    ]);
+
+    app(PhishNetSynchronizer::class)->syncYear(2025);
+
+    expect(app(PhishNetSynchronizer::class)->currentSongRun('2025-07-25'))
+        ->toBe('Possum');
+});
+
+test('the whole set is the run when every song has segued', function () {
+    fakeSetlistYear(2025, [
+        runRow(1, 'Sample', ' > '),
+        runRow(2, 'Tweezer', ' > '),
+        runRow(3, 'Possum', ''),
+    ]);
+
+    app(PhishNetSynchronizer::class)->syncYear(2025);
+
+    expect(app(PhishNetSynchronizer::class)->currentSongRun('2025-07-25'))
+        ->toBe('Sample > Tweezer > Possum');
+});
+
+test('there is no song run for a date with no setlist, or no date at all', function () {
+    expect(app(PhishNetSynchronizer::class)->currentSongRun('2025-07-25'))->toBeNull()
+        ->and(app(PhishNetSynchronizer::class)->currentSongRun(null))->toBeNull();
+});
+
+test('the live snapshot carries the song run while a show is being played', function () {
+    Queue::fake();
+
+    /*
+     * The mark on the newest song describes what will follow it, so nothing
+     * has happened yet — only the one before it decides where the run starts.
+     */
+    $rows = [
+        runRow(1, 'Tweezer', ' > '),
+        runRow(2, 'Possum', ', '),
+    ];
+
+    fakeSetlistYear(2026, array_map(
+        fn (array $row) => array_merge($row, ['showdate' => '2026-07-19', 'showyear' => 2026]),
+        $rows,
+    ));
+    fakeScheduledShows('2026-07-19', [scheduledShowRow()]);
+    fakeEndpoint('setlists/showdate/2026-07-19.json', array_map(
+        fn (array $row) => array_merge($row, ['showdate' => '2026-07-19', 'showyear' => 2026]),
+        $rows,
+    ));
+
+    $this->travelTo('2026-07-19 21:30:00 America/New_York');
+
+    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+
+    expect(app(PhishNetRepository::class)->liveState())
+        ->inShowWindow->toBeTrue()
+        ->currentSongs->toBe('Tweezer > Possum');
+});
+
+test('the live snapshot drops the song run once the show has ended', function () {
+    Queue::fake();
+
+    $rows = [array_merge(
+        runRow(1, 'Possum', ''),
+        ['showdate' => '2026-07-19', 'showyear' => 2026, 'transition' => 6],
+    )];
+
+    fakeSetlistYear(2026, $rows);
+    fakeScheduledShows('2026-07-19', [scheduledShowRow()]);
+    fakeEndpoint('setlists/showdate/2026-07-19.json', $rows);
+
+    $this->travelTo('2026-07-19 23:30:00 America/New_York');
+
+    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+
+    expect(app(PhishNetRepository::class)->liveState())
+        ->inShowWindow->toBeFalse()
+        ->currentSongs->toBeNull();
+});
+
+test('the song performances endpoint serves the five most recent plays newest first', function () {
+    $synchronizer = app(PhishNetSynchronizer::class);
+
+    foreach (range(2019, 2025) as $index => $year) {
+        fakeSetlistYear($year, [setlistRow([
+            'showid' => 1000 + $index,
+            'uniqueid' => 2000 + $index,
+            'showdate' => "{$year}-07-25",
+            'showyear' => $year,
+        ])]);
+
+        $synchronizer->syncYear($year);
+    }
+
+    $response = $this->getJson(route('data.song-performances', ['slug' => 'first-tube']))
+        ->assertOk();
+
+    expect($response->json('data.*.showdate'))->toBe([
+        '2025-07-25',
+        '2024-07-25',
+        '2023-07-25',
+        '2022-07-25',
+        '2021-07-25',
+    ]);
+});
+
+test('the song performances endpoint carries the venue and permalink the dialog links to', function () {
+    fakeSetlistYear(2025, [setlistRow()]);
+    app(PhishNetSynchronizer::class)->syncYear(2025);
+
+    $this->getJson(route('data.song-performances', ['slug' => 'first-tube']))
+        ->assertOk()
+        ->assertJsonPath('data.0.venue', 'Broadview Stage at SPAC')
+        ->assertJsonPath('data.0.city', 'Saratoga Springs')
+        ->assertJsonPath('data.0.permalink', 'https://phish.net/setlists/example.html')
+        ->assertJsonPath('data.0.set', '1');
+});
+
+test('the song performances endpoint leaves out shows by other artists', function () {
+    fakeSetlistYear(2025, [
+        setlistRow(),
+        setlistRow([
+            'showid' => 999,
+            'uniqueid' => 888,
+            'showdate' => '2025-08-01',
+            'artistid' => 2,
+        ]),
+    ]);
+
+    app(PhishNetSynchronizer::class)->syncYear(2025);
+
+    $this->getJson(route('data.song-performances', ['slug' => 'first-tube']))
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.showdate', '2025-07-25');
+});
+
+test('the song performances endpoint can leave out the tour the dialog already lists', function () {
+    fakeSetlistYear(2025, [
+        setlistRow(),
+        setlistRow([
+            'showid' => 1739906900,
+            'uniqueid' => 510500,
+            'showdate' => '2025-09-01',
+            'tourid' => 212,
+            'tourname' => '2025 Fall Tour',
+        ]),
+    ]);
+
+    app(PhishNetSynchronizer::class)->syncYear(2025);
+
+    /** The excluded tour holds the newer show, so it would otherwise lead. */
+    $this->getJson(route('data.song-performances', [
+        'slug' => 'first-tube',
+        'exclude_tour' => 212,
+    ]))
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.showdate', '2025-07-25');
+});
+
+test('a show belonging to no tour survives the tour exclusion', function () {
+    fakeSetlistYear(2025, [setlistRow(['tourid' => null, 'tourname' => null])]);
+
+    app(PhishNetSynchronizer::class)->syncYear(2025);
+
+    $this->getJson(route('data.song-performances', [
+        'slug' => 'first-tube',
+        'exclude_tour' => 211,
+    ]))
+        ->assertOk()
+        ->assertJsonCount(1, 'data');
+});
+
+test('the song performances endpoint reports nothing for a song never played', function () {
+    $this->getJson(route('data.song-performances', ['slug' => 'gamehendge-overture']))
+        ->assertOk()
+        ->assertExactJson(['data' => []]);
+});
+
+test('the song performances endpoint reflects a show that has just been imported', function () {
+    $synchronizer = app(PhishNetSynchronizer::class);
+
+    fakeSetlistYear(2025, [setlistRow()]);
+    $synchronizer->syncYear(2025);
+
+    $this->getJson(route('data.song-performances', ['slug' => 'first-tube']))
+        ->assertJsonCount(1, 'data');
+
+    fakeSetlistYear(2025, [
+        setlistRow(),
+        setlistRow([
+            'showid' => 1739906900,
+            'uniqueid' => 510500,
+            'showdate' => '2025-08-01',
+        ]),
+    ]);
+    $synchronizer->syncYear(2025);
+
+    $this->getJson(route('data.song-performances', ['slug' => 'first-tube']))
+        ->assertJsonCount(2, 'data')
+        ->assertJsonPath('data.0.showdate', '2025-08-01');
+});
+
 test('the live endpoint serves the highlight window to the browser', function () {
     app(PhishNetRepository::class)->publishLiveState(
         'abc123',

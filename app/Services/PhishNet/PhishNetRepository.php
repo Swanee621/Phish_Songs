@@ -110,12 +110,48 @@ class PhishNetRepository
     }
 
     /**
+     * The most recent times a song was played, newest first.
+     *
+     * Deliberately uncached, unlike the payloads above: it has to be able to
+     * include a show that landed minutes ago, and there is no import hook that
+     * could clear a per-slug key the way {@see forgetYear()} clears the year and
+     * showdate ones. The cost is bounded — `slug` is indexed, and even the
+     * most-played song has only a few hundred rows behind it.
+     *
+     * @param  int|null  $excludeTourId  A tour to leave out, so the caller can
+     *                                   ask for history either side of the one
+     *                                   it is already listing in full.
+     * @return array<int, array<string, mixed>>
+     */
+    public function recentPerformances(string $slug, int $limit, ?int $excludeTourId = null): array
+    {
+        return $this->setlistQuery()
+            ->where('setlist_entries.slug', $slug)
+            ->where('setlist_entries.artistid', 1)
+            /*
+             * `tourid != x` alone would also drop the shows that belong to no
+             * tour at all, since a NULL comparison is never true.
+             */
+            ->when($excludeTourId !== null, fn (Builder $query) => $query->where(
+                fn (Builder $tour) => $tour
+                    ->where('shows.tourid', '!=', $excludeTourId)
+                    ->orWhereNull('shows.tourid'),
+            ))
+            ->orderByDesc('shows.showdate')
+            ->orderByDesc('setlist_entries.position')
+            ->limit($limit)
+            ->get()
+            ->map(fn ($row) => (array) $row)
+            ->all();
+    }
+
+    /**
      * The live-status snapshot the browser polls: a version hash that moves
      * whenever the current year's setlist data changes, plus the show-window
      * flag the sync loop last observed. Served straight from cache so a poll
      * never touches the database or the API.
      *
-     * @return array{version: ?string, inShowWindow: bool, year: ?int, showdate: ?string, highlightShowdate: ?string, highlightUntil: ?string, updatedAt: ?string}
+     * @return array{version: ?string, inShowWindow: bool, year: ?int, showdate: ?string, highlightShowdate: ?string, highlightUntil: ?string, currentSongs: ?string, updatedAt: ?string}
      */
     public function liveState(): array
     {
@@ -126,6 +162,7 @@ class PhishNetRepository
             'showdate' => null,
             'highlightShowdate' => null,
             'highlightUntil' => null,
+            'currentSongs' => null,
             'updatedAt' => null,
         ];
     }
@@ -139,7 +176,8 @@ class PhishNetRepository
      * `highlightShowdate` outlives that flag: it names the show a page should
      * still be treating as the current one, and `highlightUntil` is the instant
      * it stops — the morning-after grace period, resolved in venue time by
-     * {@see PhishNetSynchronizer::highlightWindow()}.
+     * {@see PhishNetSynchronizer::highlightWindow()}. `currentSongs` is the run
+     * on stage right now, for the header to show while a show is playing.
      */
     public function publishLiveState(
         ?string $version,
@@ -148,6 +186,7 @@ class PhishNetRepository
         ?string $showdate = null,
         ?string $highlightShowdate = null,
         ?string $highlightUntil = null,
+        ?string $currentSongs = null,
     ): void {
         Cache::forever($this->key('live'), [
             'version' => $version,
@@ -156,6 +195,7 @@ class PhishNetRepository
             'showdate' => $showdate,
             'highlightShowdate' => $highlightShowdate,
             'highlightUntil' => $highlightUntil,
+            'currentSongs' => $currentSongs,
             'updatedAt' => now()->toIso8601String(),
         ]);
     }

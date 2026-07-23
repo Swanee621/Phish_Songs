@@ -5,6 +5,7 @@
     import { onMount } from 'svelte';
     import type { Snippet } from 'svelte';
     import AppSidebar from '@/components/AppSidebar.svelte';
+    import { sharedLiveStatus } from '@/lib/live-poll.svelte';
     import { sidebar } from '@/lib/sidebar.svelte';
 
     let { children }: { children?: Snippet } = $props();
@@ -37,10 +38,10 @@
             <header
                 class="flex h-16 shrink-0 items-center gap-2 border-b border-sidebar-border/70 px-6 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12 md:px-4"
             >
-                <div class="flex items-center gap-2">
+                <div class="flex min-w-0 flex-1 items-center gap-2">
                     <button
                         type="button"
-                        class="-ml-1 inline-flex h-14 w-14 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none md:h-12 md:w-12"
+                        class="-ml-1 inline-flex h-14 w-14 shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none md:h-12 md:w-12"
                         onclick={() => sidebar.toggle()}
                     >
                         {#if sidebar.isMobile || sidebar.collapsed}
@@ -50,6 +51,29 @@
                         {/if}
                         <span class="sr-only">Toggle sidebar</span>
                     </button>
+
+                    <!--
+                        What is on stage right now, strung across segues by the
+                        server. Only present while a show is being played.
+                      -->
+                    {#if sharedLiveStatus.currentSongs}
+                        <div
+                            class="flex min-w-0 items-center gap-2"
+                            aria-live="polite"
+                        >
+                            <span class="relative flex size-2 shrink-0">
+                                <span
+                                    class="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-75"
+                                ></span>
+                                <span
+                                    class="relative inline-flex size-2 rounded-full bg-green-500"
+                                ></span>
+                            </span>
+                            <span class="truncate text-sm font-medium">
+                                {sharedLiveStatus.currentSongs}
+                            </span>
+                        </div>
+                    {/if}
                 </div>
             </header>
 

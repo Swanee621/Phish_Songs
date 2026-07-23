@@ -8,6 +8,7 @@
     import {
         setlistsForYear,
         showYears,
+        songPerformances,
         songs as songsRoute,
     } from '@/actions/App/Http/Controllers/PhishNetExamplesController';
     import AppHead from '@/components/AppHead.svelte';
@@ -29,6 +30,35 @@
     /** The most recent song of that show: on stage now, or the closer. */
     const LATEST_SONG_CLASSES =
         'bg-amber-500/15 font-medium text-amber-700 ring-1 ring-amber-500/40 dark:text-amber-300';
+
+    /**
+     * Sets the dialog's boxes for the tour on screen apart from the older
+     * performances listed underneath them. Border colour and width are separate
+     * properties from the `border` the box already carries, so these can safely
+     * be appended rather than swapped in.
+     */
+    const CURRENT_TOUR_BOX_CLASSES = 'border-amber-500/70 bg-amber-500/5';
+
+    /**
+     * The fields each performance box lists, in the order they are shown. The
+     * underlying rows carry far more than this — ids, slugs, jam flags — which
+     * is noise once the box is something you read rather than debug with.
+     */
+    const PERFORMANCE_FIELDS: {
+        key: keyof SetlistRow;
+        label: string;
+        html?: boolean;
+    }[] = [
+        { key: 'song', label: 'Song' },
+        { key: 'showdate', label: 'Date' },
+        { key: 'setlistnotes', label: 'Notes', html: true },
+        { key: 'venue', label: 'Venue' },
+        { key: 'city', label: 'City' },
+        { key: 'state', label: 'State' },
+        { key: 'country', label: 'Country' },
+        { key: 'tourname', label: 'Tour' },
+        { key: 'tourwhen', label: 'Tour Run' },
+    ];
 
     const badgeClasses = (isSelected: boolean): string =>
         `${BADGE_CLASSES} ${
@@ -108,6 +138,13 @@
     let dialogOpen = $state(false);
     let dialogSlug = $state<string | null>(null);
 
+    /**
+     * The song's most recent performances anywhere, which the server looks up
+     * per dialog rather than the page holding every year in memory.
+     */
+    let recentPerformances = $state<SetlistRow[]>([]);
+    let recentPerformancesLoading = $state(false);
+
     let minTimesPlayed = $state(
         typeof savedPrefs?.minTimesPlayed === 'number'
             ? savedPrefs.minTimesPlayed
@@ -129,6 +166,10 @@
     const refreshHttp = useHttp<Record<string, never>, { data: SetlistRow[] }>(
         {},
     );
+    const performancesHttp = useHttp<
+        Record<string, never>,
+        { data: SetlistRow[] }
+    >({});
 
     // Shared poll loop: refetch the live year whenever its version hash moves,
     // and expose the show-window flag + countdown the setlists section renders.
@@ -326,6 +367,14 @@
             '',
     );
 
+    /**
+     * phish.net has no permalink on the song catalog itself, only on shows, so
+     * a song's page is addressed by its slug the same way the setlists do.
+     */
+    const dialogSongUrl = $derived(
+        dialogSlug === null ? null : `https://phish.net/song/${dialogSlug}`,
+    );
+
     const prevDisabled = $derived(
         loadingYear ||
             (tourIndex === 0 &&
@@ -452,6 +501,30 @@
     function openSongDialog(slug: string) {
         dialogSlug = slug;
         dialogOpen = true;
+        recentPerformances = [];
+        recentPerformancesLoading = true;
+
+        performancesHttp.get(
+            songPerformances.url(slug, {
+                // The tour on screen is already listed in full above these, so
+                // asking for it back would waste slots on duplicates.
+                query: { exclude_tour: selectedTour?.tourid ?? null },
+            }),
+            {
+                onSuccess: (response) => {
+                    // A dialog closed or reopened on another song mid-flight
+                    // must not have this response land under it.
+                    if (dialogSlug !== slug) {
+                        return;
+                    }
+
+                    recentPerformances = response.data;
+                    recentPerformancesLoading = false;
+                },
+                onError: () => (recentPerformancesLoading = false),
+                onNetworkError: () => (recentPerformancesLoading = false),
+            },
+        );
     }
 
     function formatFieldValue(value: unknown): string {
@@ -868,6 +941,44 @@
     {/if}
 </div>
 
+{#snippet performanceBox(row: SetlistRow, fromCurrentTour: boolean)}
+    <div
+        class="mt-2 rounded border p-2 {fromCurrentTour
+            ? CURRENT_TOUR_BOX_CLASSES
+            : ''}"
+    >
+        <p class="mb-1 text-xs font-medium">
+            <a
+                href={row.permalink}
+                target="_blank"
+                rel="noopener"
+                class="text-primary underline decoration-primary/30 underline-offset-4"
+            >
+                {row.showdate} &mdash; {row.venue}
+            </a>
+        </p>
+        <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+            {#each PERFORMANCE_FIELDS as field (field.key)}
+                <dt class="font-medium text-muted-foreground">{field.label}</dt>
+                <dd class="wrap-break-word">
+                    {#if field.html && row[field.key]}
+                        <!--
+                            Setlist notes arrive from phish.net as a fragment of
+                            markup — footnote links and emphasis — so they are
+                            rendered rather than escaped, the same way the
+                            setlist views do.
+                          -->
+                        <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+                        {@html row[field.key]}
+                    {:else}
+                        {formatFieldValue(row[field.key])}
+                    {/if}
+                </dd>
+            {/each}
+        </dl>
+    </div>
+{/snippet}
+
 {#if dialogOpen}
     <div class="fixed inset-0 z-50 flex items-center justify-center">
         <button
@@ -882,9 +993,15 @@
             aria-modal="true"
         >
             <h2 class="text-lg leading-none font-semibold tracking-tight">
-                {dialogSongName}
+                <a
+                    href={dialogSongUrl}
+                    target="_blank"
+                    rel="noopener"
+                    class="text-primary underline decoration-primary/30 underline-offset-4"
+                >
+                    {dialogSongName}
+                </a>
             </h2>
-            <p class="text-sm text-muted-foreground">All the data!</p>
 
             {#if dialogCatalogEntry}
                 <div class="mt-4">
@@ -924,28 +1041,27 @@
                 </h3>
                 {#if dialogPerformances.length}
                     {#each dialogPerformances as row, i (row.showid + '-' + i)}
-                        <div class="mt-2 rounded border p-2">
-                            <p class="mb-1 text-xs font-medium">
-                                {row.showdate} &mdash; {row.venue}
-                            </p>
-                            <dl
-                                class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs"
-                            >
-                                {#each Object.entries(row) as [key, value] (key)}
-                                    <dt class="font-mono text-muted-foreground">
-                                        {key}
-                                    </dt>
-                                    <dd class="wrap-break-word">
-                                        {formatFieldValue(value)}
-                                    </dd>
-                                {/each}
-                            </dl>
-                        </div>
+                        {@render performanceBox(row, true)}
                     {/each}
                 {:else}
                     <p class="text-sm text-muted-foreground">
                         Not played in this tour.
                     </p>
+                {/if}
+            </div>
+
+            <div class="mt-4">
+                <h3 class="mb-1 text-sm font-semibold text-muted-foreground">
+                    Most recent past performances
+                </h3>
+                {#if recentPerformancesLoading}
+                    <p class="text-sm text-muted-foreground">Loading…</p>
+                {:else if recentPerformances.length}
+                    {#each recentPerformances as row (row.showid + '-' + row.position)}
+                        {@render performanceBox(row, false)}
+                    {/each}
+                {:else}
+                    <p class="text-sm text-muted-foreground">New song</p>
                 {/if}
             </div>
 

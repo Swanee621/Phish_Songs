@@ -8,6 +8,7 @@ export type SetlistRow = {
     country: string;
     artistid: number;
     set: string;
+    position: number;
     song: string;
     slug: string;
     transition: number;

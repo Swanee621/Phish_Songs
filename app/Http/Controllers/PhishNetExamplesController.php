@@ -4,11 +4,17 @@ namespace App\Http\Controllers;
 
 use App\Services\PhishNet\PhishNetRepository;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class PhishNetExamplesController extends Controller
 {
+    /**
+     * How many past performances of a song the dialog lists.
+     */
+    protected const RECENT_PERFORMANCES = 5;
+
     public function recentSetlists(): Response
     {
         return Inertia::render('RecentSetlists', [
@@ -61,6 +67,25 @@ class PhishNetExamplesController extends Controller
     }
 
     /**
+     * The handful of most recent performances of one song, which the song
+     * dialog shows underneath the performances from the tour on screen.
+     *
+     * `exclude_tour` keeps that tour out of the results, so the dialog gets a
+     * full five of history rather than five slots partly spent repeating the
+     * list directly above it.
+     */
+    public function songPerformances(Request $request, PhishNetRepository $repository, string $slug): JsonResponse
+    {
+        return response()->json([
+            'data' => $repository->recentPerformances(
+                $slug,
+                self::RECENT_PERFORMANCES,
+                $request->integer('exclude_tour') ?: null,
+            ),
+        ]);
+    }
+
+    /**
      * The lightweight snapshot the browser polls to decide whether its data is
      * stale. The version hash moves when new setlist data lands; the poll
      * interval mirrors the server's own pacing so the page speeds up during a
@@ -77,6 +102,7 @@ class PhishNetExamplesController extends Controller
             'showdate' => $state['showdate'],
             'highlightShowdate' => $state['highlightShowdate'],
             'highlightUntil' => $state['highlightUntil'],
+            'currentSongs' => $state['currentSongs'],
             'inShowWindow' => $inShowWindow,
             'pollInterval' => $inShowWindow
                 ? (int) config('phishnet.client.active_interval')

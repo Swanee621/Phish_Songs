@@ -35,6 +35,16 @@ return [
         ],
     ],
 
+    'nightwatch' => [
+        /*
+         * Comma separated client IPs whose requests are dropped before
+         * Nightwatch ships them, so browsing the site yourself does not fill
+         * the dashboard. Kept in the environment rather than here because they
+         * are personal addresses and this repository is public.
+         */
+        'ignored_ips' => env('NIGHTWATCH_IGNORED_IPS', ''),
+    ],
+
     'phishnet' => [
         'key' => env('PHISHNET_API_KEY'),
         'salt' => env('PHISHNET_API_SALT'),

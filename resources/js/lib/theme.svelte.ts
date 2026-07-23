@@ -1,6 +1,5 @@
-import type { Appearance, ResolvedAppearance } from '@/types';
-
-export type { Appearance, ResolvedAppearance };
+export type Appearance = 'light' | 'dark' | 'system';
+export type ResolvedAppearance = 'light' | 'dark';
 
 export type ThemeState = {
     appearance: {

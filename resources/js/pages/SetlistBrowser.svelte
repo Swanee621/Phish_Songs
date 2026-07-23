@@ -1,11 +1,3 @@
-<script module lang="ts">
-    import { setlistBrowser } from '@/actions/App/Http/Controllers/PhishNetExamplesController';
-
-    export const layout = {
-        breadcrumbs: [{ title: 'Setlist Browser', href: setlistBrowser() }],
-    };
-</script>
-
 <script lang="ts">
     import { useHttp } from '@inertiajs/svelte';
     import { onMount } from 'svelte';
@@ -16,13 +8,20 @@
         showYears,
     } from '@/actions/App/Http/Controllers/PhishNetExamplesController';
     import AppHead from '@/components/AppHead.svelte';
-    import SetlistView from '@/components/phishnet/SetlistView.svelte';
-    import { Badge } from '@/components/ui/badge';
-    import { Button } from '@/components/ui/button';
-    import { Input } from '@/components/ui/input';
+    import SetlistView from '@/components/SetlistView.svelte';
     import { createLivePoll, formatCountdown } from '@/lib/live-poll.svelte';
     import { readPrefsCookie, writePrefsCookie } from '@/lib/prefs-cookie';
     import type { ShowYear, SetlistRow } from '@/types/phishnet';
+
+    const BADGE_CLASSES =
+        'inline-flex w-fit shrink-0 cursor-pointer items-center justify-center gap-1 overflow-hidden rounded-full border border-transparent px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-[color,box-shadow]';
+
+    const badgeClasses = (isSelected: boolean): string =>
+        `${BADGE_CLASSES} ${
+            isSelected
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-secondary text-secondary-foreground'
+        }`;
 
     type StoredPrefs = {
         year: string | null;
@@ -235,10 +234,18 @@
             loadDate(showdate);
         }}
     >
-        <Input type="date" bind:value={showdate} />
-        <Button type="submit" disabled={loading}
-            >{loading ? 'Loading…' : 'Load'}</Button
+        <input
+            type="date"
+            bind:value={showdate}
+            class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+        />
+        <button
+            type="submit"
+            disabled={loading}
+            class="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-primary px-5 py-2.5 text-base font-medium whitespace-nowrap text-primary-foreground shadow transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 md:h-9 md:px-4 md:py-2 md:text-sm"
         >
+            {loading ? 'Loading…' : 'Load'}
+        </button>
     </form>
 
     <div>
@@ -251,15 +258,12 @@
                 >
             {:else}
                 {#each years as year (year)}
-                    <button type="button" onclick={() => loadYear(year)}>
-                        <Badge
-                            variant={selectedYear === year
-                                ? 'default'
-                                : 'secondary'}
-                            class="cursor-pointer"
-                        >
-                            {year}
-                        </Badge>
+                    <button
+                        type="button"
+                        onclick={() => loadYear(year)}
+                        class={badgeClasses(selectedYear === year)}
+                    >
+                        {year}
                     </button>
                 {/each}
             {/if}
@@ -285,15 +289,9 @@
                         <button
                             type="button"
                             onclick={() => loadDate(show[0].showdate)}
+                            class={badgeClasses(showdate === show[0].showdate)}
                         >
-                            <Badge
-                                variant={showdate === show[0].showdate
-                                    ? 'default'
-                                    : 'secondary'}
-                                class="cursor-pointer"
-                            >
-                                {show[0].showdate}
-                            </Badge>
+                            {show[0].showdate}
                         </button>
                     {/each}
                 {/if}

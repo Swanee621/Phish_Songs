@@ -11,7 +11,7 @@ class PhishNetExamplesController extends Controller
 {
     public function recentSetlists(): Response
     {
-        return Inertia::render('examples/RecentSetlists', [
+        return Inertia::render('RecentSetlists', [
             'clientSyncInterval' => (int) config('phishnet.client.interval'),
             'clientSyncActiveInterval' => (int) config('phishnet.client.active_interval'),
         ]);
@@ -19,7 +19,7 @@ class PhishNetExamplesController extends Controller
 
     public function setlistBrowser(): Response
     {
-        return Inertia::render('examples/SetlistBrowser', [
+        return Inertia::render('SetlistBrowser', [
             'clientSyncInterval' => (int) config('phishnet.client.interval'),
             'clientSyncActiveInterval' => (int) config('phishnet.client.active_interval'),
         ]);

@@ -1,11 +1,3 @@
-<script module lang="ts">
-    import { recentSetlists } from '@/actions/App/Http/Controllers/PhishNetExamplesController';
-
-    export const layout = {
-        breadcrumbs: [{ title: 'Recent Setlists', href: recentSetlists() }],
-    };
-</script>
-
 <script lang="ts">
     import { useHttp } from '@inertiajs/svelte';
     import { onMount } from 'svelte';
@@ -15,7 +7,7 @@
         setlistsForYear,
     } from '@/actions/App/Http/Controllers/PhishNetExamplesController';
     import AppHead from '@/components/AppHead.svelte';
-    import SetlistView from '@/components/phishnet/SetlistView.svelte';
+    import SetlistView from '@/components/SetlistView.svelte';
     import { createLivePoll, formatCountdown } from '@/lib/live-poll.svelte';
     import type { SetlistRow } from '@/types/phishnet';
 
@@ -105,7 +97,11 @@
                         class="relative inline-flex size-2 rounded-full bg-green-500"
                     ></span>
                 </span>
-                <span>Next update: {formatCountdown(livePoll.secondsRemaining)}</span>
+                <span
+                    >Next update: {formatCountdown(
+                        livePoll.secondsRemaining,
+                    )}</span
+                >
             {/if}
         </div>
     {/if}

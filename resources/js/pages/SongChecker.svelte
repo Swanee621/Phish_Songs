@@ -1,13 +1,6 @@
-<script module lang="ts">
-    import { home } from '@/routes';
-
-    export const layout = {
-        breadcrumbs: [{ title: 'Song Checker', href: home() }],
-    };
-</script>
-
 <script lang="ts">
     import { useHttp } from '@inertiajs/svelte';
+    import Check from 'lucide-svelte/icons/check';
     import ChevronDown from 'lucide-svelte/icons/chevron-down';
     import { onMount } from 'svelte';
     import { SvelteMap, SvelteSet } from 'svelte/reactivity';
@@ -18,21 +11,23 @@
         songs as songsRoute,
     } from '@/actions/App/Http/Controllers/PhishNetExamplesController';
     import AppHead from '@/components/AppHead.svelte';
-    import SetlistView from '@/components/phishnet/SetlistView.svelte';
-    import { Badge } from '@/components/ui/badge';
-    import { Button } from '@/components/ui/button';
-    import { Checkbox } from '@/components/ui/checkbox';
-    import {
-        Dialog,
-        DialogContent,
-        DialogDescription,
-        DialogFooter,
-        DialogTitle,
-    } from '@/components/ui/dialog';
-    import { Label } from '@/components/ui/label';
+    import SetlistView from '@/components/SetlistView.svelte';
     import { createLivePoll, formatCountdown } from '@/lib/live-poll.svelte';
     import { readPrefsCookie, writePrefsCookie } from '@/lib/prefs-cookie';
     import type { SetlistRow, ShowYear, Song } from '@/types/phishnet';
+
+    const BADGE_CLASSES =
+        'inline-flex w-fit shrink-0 cursor-pointer items-center justify-center gap-1 overflow-hidden rounded-full border border-transparent px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-[color,box-shadow]';
+
+    const OUTLINE_BUTTON_CLASSES =
+        'inline-flex h-10 items-center justify-center gap-2 rounded-md border border-input bg-background px-4 text-sm font-medium whitespace-nowrap transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 md:h-8 md:px-3 md:text-xs';
+
+    const badgeClasses = (isSelected: boolean): string =>
+        `${BADGE_CLASSES} ${
+            isSelected
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-secondary text-secondary-foreground'
+        }`;
 
     type ViewMode = 'played' | 'not-played';
 
@@ -512,20 +507,20 @@
         <h1 class="text-2xl font-semibold">Song Checker</h1>
 
         {#if !initialLoading && yearsLoaded}
-            <Button
-                variant="ghost"
-                size="icon"
+            <button
+                type="button"
                 onclick={() => (filtersOpen = !filtersOpen)}
                 aria-expanded={filtersOpen}
                 aria-controls="song-checker-filters"
                 aria-label={filtersOpen ? 'Hide filters' : 'Show filters'}
+                class="inline-flex h-10 w-10 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none md:h-9 md:w-9"
             >
                 <ChevronDown
                     class="size-4 transition-transform duration-200 {filtersOpen
                         ? 'rotate-180'
                         : ''}"
                 />
-            </Button>
+            </button>
         {/if}
     </div>
 
@@ -549,15 +544,9 @@
                             <button
                                 type="button"
                                 onclick={() => selectYear(year, 'first')}
+                                class={badgeClasses(currentYear === year)}
                             >
-                                <Badge
-                                    variant={currentYear === year
-                                        ? 'default'
-                                        : 'secondary'}
-                                    class="cursor-pointer"
-                                >
-                                    {year}
-                                </Badge>
+                                {year}
                             </button>
                         {/each}
                     </div>
@@ -575,15 +564,9 @@
                                 <button
                                     type="button"
                                     onclick={() => selectTourIndex(index)}
+                                    class={badgeClasses(index === tourIndex)}
                                 >
-                                    <Badge
-                                        variant={index === tourIndex
-                                            ? 'default'
-                                            : 'secondary'}
-                                        class="cursor-pointer"
-                                    >
-                                        {tour.tourname}
-                                    </Badge>
+                                    {tour.tourname}
                                 </button>
                             {/each}
                         </div>
@@ -606,22 +589,22 @@
                         </p>
                     </div>
                     <div class="flex items-start justify-between gap-4">
-                        <Button
-                            variant="outline"
-                            size="sm"
+                        <button
+                            type="button"
                             onclick={() => cycleTour(-1)}
                             disabled={prevDisabled}
+                            class={OUTLINE_BUTTON_CLASSES}
                         >
                             &larr; Previous tour
-                        </Button>
-                        <Button
-                            variant="outline"
-                            size="sm"
+                        </button>
+                        <button
+                            type="button"
                             onclick={() => cycleTour(1)}
                             disabled={nextDisabled}
+                            class={OUTLINE_BUTTON_CLASSES}
                         >
                             Next tour &rarr;
-                        </Button>
+                        </button>
                     </div>
                 </div>
 
@@ -713,16 +696,31 @@
                         />
 
                         <div class="flex items-center gap-2">
-                            <Checkbox
+                            <button
+                                type="button"
                                 id="only-phish-songs"
-                                bind:checked={onlyPhishSongs}
-                            />
-                            <Label
+                                role="checkbox"
+                                aria-checked={onlyPhishSongs}
+                                onclick={() =>
+                                    (onlyPhishSongs = !onlyPhishSongs)}
+                                class="size-4 shrink-0 rounded-lg border border-input shadow-xs transition-shadow outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 {onlyPhishSongs
+                                    ? 'border-primary bg-primary text-primary-foreground'
+                                    : ''}"
+                            >
+                                {#if onlyPhishSongs}
+                                    <div
+                                        class="grid place-content-center text-current"
+                                    >
+                                        <Check class="size-3.5" />
+                                    </div>
+                                {/if}
+                            </button>
+                            <label
                                 for="only-phish-songs"
-                                class="text-sm font-normal text-muted-foreground md:text-xs"
+                                class="text-sm leading-none font-normal text-muted-foreground md:text-xs"
                             >
                                 Only Phish Songs
-                            </Label>
+                            </label>
                         </div>
                     </div>
 
@@ -806,74 +804,98 @@
     {/if}
 </div>
 
-<Dialog bind:open={dialogOpen}>
-    <DialogContent class="max-h-[85vh] max-w-2xl overflow-y-auto">
-        <DialogTitle>{dialogSongName}</DialogTitle>
-        <DialogDescription>All the data!</DialogDescription>
+{#if dialogOpen}
+    <div class="fixed inset-0 z-50 flex items-center justify-center">
+        <button
+            type="button"
+            class="fixed inset-0 bg-black/50"
+            aria-label="Close"
+            onclick={() => (dialogOpen = false)}
+        ></button>
+        <div
+            class="relative z-10 max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-lg border bg-background p-6 shadow-lg"
+            role="dialog"
+            aria-modal="true"
+        >
+            <h2 class="text-lg leading-none font-semibold tracking-tight">
+                {dialogSongName}
+            </h2>
+            <p class="text-sm text-muted-foreground">All the data!</p>
 
-        {#if dialogCatalogEntry}
+            {#if dialogCatalogEntry}
+                <div class="mt-4">
+                    <h3
+                        class="mb-1 text-sm font-semibold text-muted-foreground"
+                    >
+                        Song catalog
+                    </h3>
+                    <dl
+                        class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm"
+                    >
+                        {#each Object.entries(dialogCatalogEntry) as [key, value] (key)}
+                            <dt class="font-mono text-xs text-muted-foreground">
+                                {key}
+                            </dt>
+                            <dd class="wrap-break-word">
+                                {#if typeof value === 'string' && value.startsWith('https://')}
+                                    <a
+                                        href={value}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                    >
+                                        {value}
+                                    </a>
+                                {:else}
+                                    {formatFieldValue(value)}
+                                {/if}
+                            </dd>
+                        {/each}
+                    </dl>
+                </div>
+            {/if}
+
             <div class="mt-4">
                 <h3 class="mb-1 text-sm font-semibold text-muted-foreground">
-                    Song catalog
+                    Performances in {selectedTour?.tourname ?? 'this tour'} ({dialogPerformances.length})
                 </h3>
-                <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-                    {#each Object.entries(dialogCatalogEntry) as [key, value] (key)}
-                        <dt class="font-mono text-xs text-muted-foreground">
-                            {key}
-                        </dt>
-                        <dd class="wrap-break-word">
-                            {#if typeof value === 'string' && value.startsWith('https://')}
-                                <a
-                                    href={value}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                >
-                                    {value}
-                                </a>
-                            {:else}
-                                {formatFieldValue(value)}
-                            {/if}
-                        </dd>
+                {#if dialogPerformances.length}
+                    {#each dialogPerformances as row, i (row.showid + '-' + i)}
+                        <div class="mt-2 rounded border p-2">
+                            <p class="mb-1 text-xs font-medium">
+                                {row.showdate} &mdash; {row.venue}
+                            </p>
+                            <dl
+                                class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs"
+                            >
+                                {#each Object.entries(row) as [key, value] (key)}
+                                    <dt class="font-mono text-muted-foreground">
+                                        {key}
+                                    </dt>
+                                    <dd class="wrap-break-word">
+                                        {formatFieldValue(value)}
+                                    </dd>
+                                {/each}
+                            </dl>
+                        </div>
                     {/each}
-                </dl>
+                {:else}
+                    <p class="text-sm text-muted-foreground">
+                        Not played in this tour.
+                    </p>
+                {/if}
             </div>
-        {/if}
 
-        <div class="mt-4">
-            <h3 class="mb-1 text-sm font-semibold text-muted-foreground">
-                Performances in {selectedTour?.tourname ?? 'this tour'} ({dialogPerformances.length})
-            </h3>
-            {#if dialogPerformances.length}
-                {#each dialogPerformances as row, i (row.showid + '-' + i)}
-                    <div class="mt-2 rounded border p-2">
-                        <p class="mb-1 text-xs font-medium">
-                            {row.showdate} &mdash; {row.venue}
-                        </p>
-                        <dl
-                            class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs"
-                        >
-                            {#each Object.entries(row) as [key, value] (key)}
-                                <dt class="font-mono text-muted-foreground">
-                                    {key}
-                                </dt>
-                                <dd class="wrap-break-word">
-                                    {formatFieldValue(value)}
-                                </dd>
-                            {/each}
-                        </dl>
-                    </div>
-                {/each}
-            {:else}
-                <p class="text-sm text-muted-foreground">
-                    Not played in this tour.
-                </p>
-            {/if}
+            <div
+                class="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"
+            >
+                <button
+                    type="button"
+                    onclick={() => (dialogOpen = false)}
+                    class="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-input bg-background px-5 py-2.5 text-base font-medium whitespace-nowrap transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none md:h-9 md:px-4 md:py-2 md:text-sm"
+                >
+                    Close
+                </button>
+            </div>
         </div>
-
-        <DialogFooter class="mt-4">
-            <Button variant="outline" onclick={() => (dialogOpen = false)}>
-                Close
-            </Button>
-        </DialogFooter>
-    </DialogContent>
-</Dialog>
+    </div>
+{/if}

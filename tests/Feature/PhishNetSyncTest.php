@@ -551,7 +551,7 @@ test('the recent setlists page passes the client poll intervals to the browser',
     $this->get(route('recent-setlists'))
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
-            ->component('examples/RecentSetlists')
+            ->component('RecentSetlists')
             ->where('clientSyncInterval', 3600)
             ->where('clientSyncActiveInterval', 60),
         );
@@ -566,7 +566,7 @@ test('the setlist browser page passes the client poll intervals to the browser',
     $this->get(route('setlist-browser'))
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
-            ->component('examples/SetlistBrowser')
+            ->component('SetlistBrowser')
             ->where('clientSyncInterval', 3600)
             ->where('clientSyncActiveInterval', 60),
         );

@@ -50,7 +50,9 @@
                 {first.venue}
             </a>
             <span class="text-sm font-normal text-muted-foreground">
-                {first.city}, {first.state}{first.country !== 'USA' ? `, ${first.country}` : ''}
+                {first.city}, {first.state}{first.country !== 'USA'
+                    ? `, ${first.country}`
+                    : ''}
             </span>
         </h3>
 
@@ -63,8 +65,11 @@
                         href={`https://phish.net/song/${song.slug}`}
                         target="_blank"
                         rel="noopener"
-                        class="hover:text-primary hover:underline">{song.song}</a
-                    >{i < songs.length - 1 ? song.trans_mark || ', ' : ''}{/each}{#if awaitingNextSong && setIndex === sets.length - 1}<span
+                        class="hover:text-primary hover:underline"
+                        >{song.song}</a
+                    >{i < songs.length - 1
+                        ? song.trans_mark || ', '
+                        : ''}{/each}{#if awaitingNextSong && setIndex === sets.length - 1}<span
                         class="ml-1 inline-flex items-center align-middle text-muted-foreground"
                         title="Waiting for the next song…"
                         aria-label="Waiting for the next song"

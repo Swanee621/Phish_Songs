@@ -10,6 +10,7 @@ export type SetlistRow = {
     set: string;
     song: string;
     slug: string;
+    transition: number;
     trans_mark: string;
     setlistnotes?: string;
     tourid: number;

@@ -8,6 +8,13 @@
         awaitingNextSong = false,
     }: { rows: SetlistRow[]; awaitingNextSong?: boolean } = $props();
 
+    /**
+     * The phish.net transition code on the last song before a setbreak. The
+     * server watches for 6 the same way to decide a show has ended; see
+     * {@link app/Services/PhishNet/PhishNetSynchronizer.php}.
+     */
+    const SETBREAK_TRANSITION = 4;
+
     const setLabels: Record<string, string> = {
         '1': 'Set 1',
         '2': 'Set 2',
@@ -35,6 +42,16 @@
     });
 
     const notes = $derived(first?.setlistnotes?.trim());
+
+    /**
+     * A setbreak, which phish.net marks by tagging the set's closing song with
+     * transition 4. The next song is a whole intermission away rather than
+     * seconds away, so the spinner would otherwise sit there churning through
+     * the entire break. Polling is untouched — this only silences the spinner.
+     */
+    const inSetBreak = $derived(
+        rows.at(-1)?.transition === SETBREAK_TRANSITION,
+    );
 </script>
 
 {#if first}
@@ -69,7 +86,7 @@
                         >{song.song}</a
                     >{i < songs.length - 1
                         ? song.trans_mark || ', '
-                        : ''}{/each}{#if awaitingNextSong && setIndex === sets.length - 1}<span
+                        : ''}{/each}{#if awaitingNextSong && !inSetBreak && setIndex === sets.length - 1}<span
                         class="ml-1 inline-flex items-center align-middle text-muted-foreground"
                         title="Waiting for the next song…"
                         aria-label="Waiting for the next song"

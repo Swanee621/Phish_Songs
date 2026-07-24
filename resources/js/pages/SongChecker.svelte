@@ -9,7 +9,7 @@
         setlistsForYear,
         showYears,
         songPerformances,
-        songs as songsRoute,
+        songs as songsRoute
     } from '@/actions/App/Http/Controllers/PhishNetExamplesController';
     import AppHead from '@/components/AppHead.svelte';
     import SetlistView from '@/components/SetlistView.svelte';
@@ -57,7 +57,7 @@
         { key: 'state', label: 'State' },
         { key: 'country', label: 'Country' },
         { key: 'tourname', label: 'Tour' },
-        { key: 'tourwhen', label: 'Tour Run' },
+        { key: 'tourwhen', label: 'Tour Run' }
     ];
 
     const badgeClasses = (isSelected: boolean): string =>
@@ -88,6 +88,8 @@
         year: number;
         tourid: number;
         minTimesPlayed: number;
+        minGap: number;
+        statShown: StatShown;
         viewMode: ViewMode;
         onlyPhishSongs: boolean;
         filtersOpen: boolean;
@@ -102,7 +104,7 @@
         excludedSongs = [],
         defaultMinPlayed = 10,
         clientSyncInterval = 3600,
-        clientSyncActiveInterval = 60,
+        clientSyncActiveInterval = 60
     }: {
         excludedSongs?: string[];
         defaultMinPlayed?: number;
@@ -117,15 +119,28 @@
     let showFullSetlists = $state(
         typeof savedPrefs?.showFullSetlists === 'boolean'
             ? savedPrefs.showFullSetlists
-            : false,
+            : false
     );
     let filtersOpen = $state(
         typeof savedPrefs?.filtersOpen === 'boolean'
             ? savedPrefs.filtersOpen
-            : true,
+            : true
     );
     let viewMode = $state<ViewMode>(
-        savedPrefs?.viewMode === 'played' ? 'played' : 'not-played',
+        savedPrefs?.viewMode === 'played' ? 'played' : 'not-played'
+    );
+
+    type StatShown = 'gap' | 'play-count' | 'tour-plays' | null;
+    const STAT_SHOWN_VALUES: StatShown[] = [
+        'gap',
+        'play-count',
+        'tour-plays',
+        null
+    ];
+    let statShown = $state<StatShown>(
+        STAT_SHOWN_VALUES.includes(savedPrefs?.statShown ?? null)
+            ? (savedPrefs?.statShown ?? null)
+            : null
     );
 
     let currentYear = $state<number | null>(null);
@@ -148,23 +163,26 @@
     let minTimesPlayed = $state(
         typeof savedPrefs?.minTimesPlayed === 'number'
             ? savedPrefs.minTimesPlayed
-            : defaultMinPlayed,
+            : defaultMinPlayed
+    );
+    let minGap = $state(
+        typeof savedPrefs?.minGap === 'number' ? savedPrefs.minGap : 0
     );
     let onlyPhishSongs = $state(
         typeof savedPrefs?.onlyPhishSongs === 'boolean'
             ? savedPrefs.onlyPhishSongs
-            : true,
+            : true
     );
 
     const yearData = new SvelteMap<number, SetlistRow[]>();
 
     const yearsHttp = useHttp<Record<string, never>, { data: ShowYear[] }>({});
     const setlistsHttp = useHttp<Record<string, never>, { data: SetlistRow[] }>(
-        {},
+        {}
     );
     const songsHttp = useHttp<Record<string, never>, { data: Song[] }>({});
     const refreshHttp = useHttp<Record<string, never>, { data: SetlistRow[] }>(
-        {},
+        {}
     );
     const performancesHttp = useHttp<
         Record<string, never>,
@@ -180,7 +198,7 @@
             if (status.year !== null) {
                 refreshLoadedYear(status.year);
             }
-        },
+        }
     });
 
     function refreshLoadedYear(year: number) {
@@ -199,14 +217,14 @@
                     currentTours = buildToursForYear(year);
 
                     const index = currentTours.findIndex(
-                        (tour) => tour.tourid === preservedTourId,
+                        (tour) => tour.tourid === preservedTourId
                     );
 
                     if (index !== -1) {
                         tourIndex = index;
                     }
                 }
-            },
+            }
         });
     }
 
@@ -220,12 +238,12 @@
         }
 
         return (yearData.get(selectedTour.year) ?? []).filter(
-            (row) => row.artistid === 1 && row.tourid === selectedTour.tourid,
+            (row) => row.artistid === 1 && row.tourid === selectedTour.tourid
         );
     });
 
     const countedRows = $derived(
-        tourRows.filter((row) => !excludedSet.has(row.slug)),
+        tourRows.filter((row) => !excludedSet.has(row.slug))
     );
 
     /**
@@ -243,7 +261,7 @@
     const liveShowRows = $derived(
         liveShowdate === null
             ? []
-            : tourRows.filter((row) => row.showdate === liveShowdate),
+            : tourRows.filter((row) => row.showdate === liveShowdate)
     );
 
     const liveSlugs = $derived(new SvelteSet(liveShowRows.map((r) => r.slug)));
@@ -256,7 +274,7 @@
      * until the grace period closes the next afternoon.
      */
     const latestSongSlug = $derived(
-        livePoll.inShowWindow ? (liveShowRows.at(-1)?.slug ?? null) : null,
+        livePoll.inShowWindow ? (liveShowRows.at(-1)?.slug ?? null) : null
     );
 
     /**
@@ -286,7 +304,7 @@
         }
 
         return [...grouped.values()].sort((a, b) =>
-            a[0].showdate.localeCompare(b[0].showdate),
+            a[0].showdate.localeCompare(b[0].showdate)
         );
     });
 
@@ -310,19 +328,56 @@
                     slug: row.slug,
                     count: 1,
                     first: row.showdate,
-                    last: row.showdate,
+                    last: row.showdate
                 });
             }
         }
 
         return [...counts.values()].sort(
-            (a, b) => b.count - a.count || a.song.localeCompare(b.song),
+            (a, b) => b.count - a.count || a.song.localeCompare(b.song)
         );
     });
 
     const playedAlphabetical = $derived(
-        [...songCounts].sort((a, b) => a.song.localeCompare(b.song)),
+        [...songCounts].sort((a, b) => a.song.localeCompare(b.song))
     );
+
+    /** Catalog entry by slug, so played rows can show all-time play count / gap. */
+    const catalogBySlug = $derived(
+        new SvelteMap((allSongs ?? []).map((song) => [song.slug, song]))
+    );
+
+    /** Highest gap in the (optionally Phish-only) catalog, capping the slider. */
+    const maxGap = $derived.by(() => {
+        if (!allSongs) {
+            return 0;
+        }
+
+        return allSongs.reduce(
+            (highest, song) =>
+                (!onlyPhishSongs || song.artist === 'Phish') &&
+                song.gap > highest
+                    ? song.gap
+                    : highest,
+            0
+        );
+    });
+
+    /** Highest play count in the (optionally Phish-only) catalog. */
+    const maxTimesPlayed = $derived.by(() => {
+        if (!allSongs) {
+            return 0;
+        }
+
+        return allSongs.reduce(
+            (highest, song) =>
+                (!onlyPhishSongs || song.artist === 'Phish') &&
+                song.times_played > highest
+                    ? song.times_played
+                    : highest,
+            0
+        );
+    });
 
     const notPlayed = $derived.by(() => {
         if (!allSongs) {
@@ -339,7 +394,7 @@
         const playedSlugs = new SvelteSet(
             countedRows
                 .filter((row) => row.showdate !== liveShowdate)
-                .map((row) => row.slug),
+                .map((row) => row.slug)
         );
 
         return allSongs
@@ -347,27 +402,28 @@
                 (song) =>
                     (!onlyPhishSongs || song.artist === 'Phish') &&
                     song.times_played >= minTimesPlayed &&
+                    (minGap === 0 || song.gap >= minGap) &&
                     !playedSlugs.has(song.slug) &&
-                    !excludedSet.has(song.slug),
+                    !excludedSet.has(song.slug)
             )
             .sort((a, b) => a.song.localeCompare(b.song));
     });
 
     const dialogCatalogEntry = $derived(
-        allSongs?.find((song) => song.slug === dialogSlug) ?? null,
+        allSongs?.find((song) => song.slug === dialogSlug) ?? null
     );
 
     const dialogPerformances = $derived(
         [...tourRows]
             .filter((row) => row.slug === dialogSlug)
-            .sort((a, b) => a.showdate.localeCompare(b.showdate)),
+            .sort((a, b) => a.showdate.localeCompare(b.showdate))
     );
 
     const dialogSongName = $derived(
         dialogCatalogEntry?.song ??
-            dialogPerformances[0]?.song ??
-            dialogSlug ??
-            '',
+        dialogPerformances[0]?.song ??
+        dialogSlug ??
+        ''
     );
 
     /**
@@ -375,19 +431,19 @@
      * a song's page is addressed by its slug the same way the setlists do.
      */
     const dialogSongUrl = $derived(
-        dialogSlug === null ? null : `https://phish.net/song/${dialogSlug}`,
+        dialogSlug === null ? null : `https://phish.net/song/${dialogSlug}`
     );
 
     const prevDisabled = $derived(
         loadingYear ||
-            (tourIndex === 0 &&
-                (currentYear === null || years.indexOf(currentYear) === 0)),
+        (tourIndex === 0 &&
+            (currentYear === null || years.indexOf(currentYear) === 0))
     );
     const nextDisabled = $derived(
         loadingYear ||
-            (tourIndex === currentTours.length - 1 &&
-                (currentYear === null ||
-                    years.indexOf(currentYear) === years.length - 1)),
+        (tourIndex === currentTours.length - 1 &&
+            (currentYear === null ||
+                years.indexOf(currentYear) === years.length - 1))
     );
 
     function buildToursForYear(year: number): Tour[] {
@@ -410,7 +466,7 @@
                 tourid: row.tourid,
                 tourname: row.tourname,
                 tourwhen: row.tourwhen,
-                year,
+                year
             });
         }
 
@@ -431,7 +487,7 @@
                 yearData.set(year, response.data);
                 loadingYear = false;
                 onLoaded();
-            },
+            }
         });
     }
 
@@ -459,7 +515,7 @@
         year: number,
         which: 'first' | 'last',
         allowFallback = false,
-        preferredTourId?: number,
+        preferredTourId?: number
     ) {
         loadYear(year, () => {
             const tours = buildToursForYear(year);
@@ -474,7 +530,7 @@
                         years[fallbackPos],
                         which,
                         true,
-                        preferredTourId,
+                        preferredTourId
                     );
                 }
 
@@ -492,8 +548,8 @@
                 preferredIndex !== -1
                     ? preferredIndex
                     : which === 'first'
-                      ? 0
-                      : mostRecentTourIndex(tours, yearData.get(year) ?? []);
+                        ? 0
+                        : mostRecentTourIndex(tours, yearData.get(year) ?? []);
         });
     }
 
@@ -511,7 +567,7 @@
             songPerformances.url(slug, {
                 // The tour on screen is already listed in full above these, so
                 // asking for it back would waste slots on duplicates.
-                query: { exclude_tour: selectedTour?.tourid ?? null },
+                query: { exclude_tour: selectedTour?.tourid ?? null }
             }),
             {
                 onSuccess: (response) => {
@@ -525,8 +581,8 @@
                     recentPerformancesLoading = false;
                 },
                 onError: () => (recentPerformancesLoading = false),
-                onNetworkError: () => (recentPerformancesLoading = false),
-            },
+                onNetworkError: () => (recentPerformancesLoading = false)
+            }
         );
     }
 
@@ -596,12 +652,12 @@
                         true,
                         typeof savedPrefs?.tourid === 'number'
                             ? savedPrefs.tourid
-                            : undefined,
+                            : undefined
                     );
                 }
 
                 initialLoading = false;
-            },
+            }
         });
 
         allSongsLoading = true;
@@ -610,13 +666,21 @@
             onSuccess: (response) => {
                 allSongs = response.data;
                 allSongsLoading = false;
-            },
+            }
         });
 
         // Establish the version baseline and start the self-pacing poll loop.
         livePoll.start();
 
         return () => livePoll.stop();
+    });
+
+    // "Tour Plays" only exists for the played list, so fall back to Gap when the
+    // user switches to the not-played view rather than leaving it selected.
+    $effect(() => {
+        if (viewMode !== 'played' && statShown === 'tour-plays') {
+            statShown = 'play-count';
+        }
     });
 
     $effect(() => {
@@ -628,10 +692,12 @@
             year: currentYear,
             tourid: selectedTour.tourid,
             minTimesPlayed,
+            minGap,
+            statShown,
             viewMode,
             onlyPhishSongs,
             filtersOpen,
-            showFullSetlists,
+            showFullSetlists
         });
     });
 </script>
@@ -745,11 +811,11 @@
                 </div>
 
                 <div
-                    class="mt-4 flex flex-wrap items-center justify-between gap-2"
+                    class="mt-4 flex flex-wrap items-center md:items-start gap-5"
                 >
+                    <!-- Played/Not Played -->
                     <div
-                        class="flex w-full rounded-md border p-0.5 md:inline-flex md:w-auto"
-                    >
+                        class="flex w-full rounded-md border p-0.5 md:inline-flex md:w-auto">
                         <button
                             type="button"
                             onclick={() => (viewMode = 'played')}
@@ -758,8 +824,7 @@
                                 viewMode === 'played'
                                     ? 'bg-primary text-primary-foreground'
                                     : 'text-muted-foreground hover:text-foreground',
-                            ]}
-                        >
+                            ]}>
                             Played
                         </button>
                         <button
@@ -770,9 +835,55 @@
                                 viewMode === 'not-played'
                                     ? 'bg-primary text-primary-foreground'
                                     : 'text-muted-foreground hover:text-foreground',
-                            ]}
-                        >
+                            ]}>
                             Not Played
+                        </button>
+                    </div>
+
+                    <!-- Gap/Play Count -->
+                    <div
+                        class="flex w-full rounded-md border p-0.5 md:inline-flex md:w-auto">
+                        {#if viewMode === 'played'}
+                            <button
+                                type="button"
+                                onclick={() => (statShown = 'tour-plays')}
+                                class={[
+                                    'flex-1 rounded px-4 py-2.5 text-sm font-medium transition-colors md:flex-none md:px-3 md:py-1 md:text-xs',
+                                    statShown === 'tour-plays'
+                                        ? 'bg-sky-700 text-sky-100'
+                                        : 'text-muted-foreground hover:text-foreground']}>
+                                Tour Plays
+                            </button>
+                        {/if}
+                        <button
+                            type="button"
+                            onclick={() => (statShown = 'play-count')}
+                            class={[
+                                'flex-1 rounded px-4 py-2.5 text-sm font-medium transition-colors md:flex-none md:px-3 md:py-1 md:text-xs',
+                                statShown === 'play-count'
+                                    ? 'bg-fuchsia-700 text-fuchsia-200'
+                                    : 'text-muted-foreground hover:text-foreground']}>
+                            Total Plays
+                        </button>
+                        <button
+                            type="button"
+                            onclick={() => (statShown = 'gap')}
+                            class={[
+                                'flex-1 rounded px-4 py-2.5 text-sm font-medium transition-colors md:flex-none md:px-3 md:py-1 md:text-xs',
+                                statShown === 'gap'
+                                    ? 'bg-green-700 text-green-100'
+                                    : 'text-muted-foreground hover:text-foreground']}>
+                            Gap
+                        </button>
+                        <button
+                            type="button"
+                            onclick={() => (statShown = null)}
+                            class={[
+                                'flex-1 rounded px-4 py-2.5 text-sm font-medium transition-colors md:flex-none md:px-3 md:py-1 md:text-xs',
+                                statShown === null
+                                    ? 'bg-primary text-primary-foreground'
+                                    : 'text-muted-foreground hover:text-foreground']}>
+                            Off
                         </button>
                     </div>
                 </div>
@@ -780,21 +891,35 @@
                 {#if viewMode === 'played'}
                     {#if playedAlphabetical.length}
                         <div
-                            class="mt-3 grid grid-cols-2 gap-x-4 gap-y-0.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
+                            class="mt-3 pt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
                         >
                             {#each playedAlphabetical as row (row.slug)}
                                 <button
                                     type="button"
                                     onclick={() => openSongDialog(row.slug)}
-                                    class="flex items-baseline cursor-pointer justify-between gap-2 rounded p-3 text-left text-base hover:bg-accent hover:text-primary {liveClasses(
+                                    class="flex items-baseline cursor-pointer ring-1 ring-slate-500/10 justify-between gap-2 rounded p-3 text-left text-base hover:bg-accent hover:text-primary {liveClasses(
                                         row.slug,
                                     )}"
                                 >
                                     <span class="truncate">{row.song}</span>
-                                    <span
-                                        class="shrink-0 text-xs font-medium text-muted-foreground"
-                                        >{row.count}</span
-                                    >
+                                    {#if statShown === 'tour-plays'}
+                                        <span
+                                            class="shrink-0 text-center text-xs font-medium ring-1 ring-sky-500/30 text-sky-400/60 rounded-4xl w-[18%] py-0.5">
+                                            {row.count}
+                                        </span>
+                                    {:else if statShown === 'play-count'}
+                                        <span
+                                            class="shrink-0 text-center text-xs font-medium ring-1 ring-fuchsia-500/30 text-fuchsia-500/60 rounded-4xl w-[18%] py-0.5">
+                                            {catalogBySlug.get(row.slug)
+                                                ?.times_played ?? '—'}
+                                        </span>
+                                    {:else if statShown === 'gap'}
+                                        <span
+                                            class="shrink-0 text-center text-xs font-medium ring-1 ring-green-800/30 text-green-400/60 rounded-4xl w-[18%] py-0.5">
+                                            {catalogBySlug.get(row.slug)?.gap ??
+                                                '—'}
+                                        </span>
+                                    {/if}
                                 </button>
                             {/each}
                         </div>
@@ -827,13 +952,37 @@
                             id="min-times-played"
                             type="range"
                             min="0"
-                            max="300"
+                            max={maxTimesPlayed}
                             step="5"
                             bind:value={minTimesPlayed}
                             class="h-6 w-full cursor-pointer appearance-none bg-transparent [&::-webkit-slider-runnable-track]:h-2 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-secondary [&::-webkit-slider-thumb]:-mt-2 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-moz-range-track]:h-2 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-secondary [&::-moz-range-thumb]:h-6 [&::-moz-range-thumb]:w-6 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-primary md:h-5 md:[&::-webkit-slider-thumb]:-mt-1.5 md:[&::-webkit-slider-thumb]:h-5 md:[&::-webkit-slider-thumb]:w-5 md:[&::-moz-range-thumb]:h-5 md:[&::-moz-range-thumb]:w-5"
                         />
 
-                        <div class="flex items-center gap-2">
+                        <div class="flex items-center justify-between gap-3">
+                            <label
+                                for="min-gap"
+                                class="shrink-0 text-sm text-muted-foreground md:text-xs"
+                            >
+                                Minimum Gap
+                            </label>
+                            <span
+                                class="shrink-0 text-sm font-medium tabular-nums text-muted-foreground md:text-xs"
+                            >
+                                {minGap === 0 ? '∞' : `${minGap}+ shows`}
+                            </span>
+                        </div>
+
+                        <input
+                            id="min-gap"
+                            type="range"
+                            min="0"
+                            max={maxGap}
+                            step="5"
+                            bind:value={minGap}
+                            class="h-6 w-full cursor-pointer appearance-none bg-transparent [&::-webkit-slider-runnable-track]:h-2 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-secondary [&::-webkit-slider-thumb]:-mt-2 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-moz-range-track]:h-2 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-secondary [&::-moz-range-thumb]:h-6 [&::-moz-range-thumb]:w-6 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-primary md:h-5 md:[&::-webkit-slider-thumb]:-mt-1.5 md:[&::-webkit-slider-thumb]:h-5 md:[&::-webkit-slider-thumb]:w-5 md:[&::-moz-range-thumb]:h-5 md:[&::-moz-range-thumb]:w-5"
+                        />
+
+                        <div class="flex items-center gap-2 pb-6 pt-4">
                             <button
                                 type="button"
                                 id="only-phish-songs"
@@ -862,27 +1011,41 @@
                         </div>
                     </div>
 
-                    <div class="mt-8 flex flex-col gap-2">
+                    <div class="flex flex-col gap-2">
                         <p class="text-sm text-muted-foreground">
                             {tourShows.length} show{tourShows.length !== 1
-                                ? 's'
-                                : ''} &middot;
+                            ? 's'
+                            : ''} &middot;
                             {notPlayed.length} song{notPlayed.length !== 1
-                                ? 's'
-                                : ''} not played
+                            ? 's'
+                            : ''} not played
                         </p>
                         <div
-                            class="mt-3 grid grid-cols-2 gap-x-4 gap-y-0.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
+                            class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
                         >
                             {#each notPlayed as song (song.slug)}
                                 <button
                                     type="button"
                                     onclick={() => openSongDialog(song.slug)}
-                                    class="truncate rounded cursor-pointer p-3 text-left text-base hover:bg-accent hover:text-primary {liveClasses(
+                                    class="flex items-baseline cursor-pointer ring-1 ring-slate-500/10 justify-between gap-2 rounded p-3 text-left text-base hover:bg-accent hover:text-primary {liveClasses(
                                         song.slug,
                                     ) || 'text-muted-foreground'}"
                                 >
-                                    {song.song}
+                                    <span class="truncate">{song.song}</span>
+                                    {#if statShown != null}
+
+                                        {#if statShown === 'play-count'}
+                                            <span
+                                                class="shrink-0 text-center text-xs font-medium ring-1 ring-fuchsia-500/30 text-fuchsia-500/60 rounded-4xl w-[18%] py-0.5">
+                                                {song.times_played}
+                                            </span>
+                                        {:else if statShown === 'gap'}
+                                            <span
+                                                class="shrink-0 text-center text-xs font-medium ring-1 ring-green-800/30 text-green-400/60 rounded-4xl w-[18%] py-0.5">
+                                                {song.gap}
+                                            </span>
+                                        {/if}
+                                    {/if}
                                 </button>
                             {/each}
                         </div>
@@ -916,9 +1079,9 @@
                                         ></span>
                                     </span>
                                     <span
-                                        >Next update: {formatCountdown(
-                                            livePoll.secondsRemaining,
-                                        )}</span
+                                    >Next update: {formatCountdown(
+                                        livePoll.secondsRemaining,
+                                    )}</span
                                     >
                                 </div>
                             {/if}

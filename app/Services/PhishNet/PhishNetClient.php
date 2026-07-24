@@ -3,6 +3,7 @@
 namespace App\Services\PhishNet;
 
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Thin client for the phish.net v5 API.
@@ -83,6 +84,11 @@ class PhishNetClient
      */
     protected function get(string $path, array $query = []): array
     {
+        Log::info('Querying phish.net API', [
+            'endpoint' => $path,
+            'query' => $query,
+        ]);
+
         $response = Http::baseUrl(self::BASE_URL)
             ->retry(3, 200, throw: false)
             ->timeout(30)

@@ -37,9 +37,9 @@
             class="relative flex w-full flex-1 flex-col overflow-x-hidden bg-background md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow-sm md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-2"
         >
             <header
-                class="flex h-16 shrink-0 items-center gap-2 border-b border-sidebar-border/70 px-6 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12 md:px-4"
+                class="flex h-16 shrink-0 items-center gap-1 border-b border-sidebar-border/70 pr-4 pl-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12 md:px-4"
             >
-                <div class="flex min-w-0 flex-1 items-center gap-2">
+                <div class="flex min-w-0 flex-1 items-center gap-1">
                     <button
                         type="button"
                         class="-ml-1 inline-flex h-14 w-14 shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none md:h-12 md:w-12"

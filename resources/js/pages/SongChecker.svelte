@@ -311,8 +311,9 @@
             }
         }
 
+        // Newest show first, so the current (or most recent) show sits on top.
         return [...grouped.values()].sort((a, b) =>
-            a[0].showdate.localeCompare(b[0].showdate)
+            b[0].showdate.localeCompare(a[0].showdate)
         );
     });
 

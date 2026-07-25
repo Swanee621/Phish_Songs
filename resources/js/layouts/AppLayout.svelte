@@ -36,10 +36,10 @@
         <AppSidebar />
 
         <main
-            class="relative flex w-full flex-1 flex-col overflow-x-hidden bg-background md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow-sm md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-2"
+            class="relative flex w-full flex-1 flex-col overflow-x-clip bg-background md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow-sm md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-2"
         >
             <header
-                class="flex min-h-16 shrink-0 items-center gap-1 border-b border-sidebar-border/70 pr-4 pl-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:min-h-12 md:px-4"
+                class="sticky top-0 z-20 flex min-h-16 shrink-0 items-center gap-1 border-b border-sidebar-border/70 bg-background pr-4 pl-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:min-h-12 md:px-4"
             >
                 <div class="flex min-w-0 flex-1 items-center gap-1">
                     <button

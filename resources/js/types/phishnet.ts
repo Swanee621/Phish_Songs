@@ -13,6 +13,7 @@ export type SetlistRow = {
     slug: string;
     transition: number;
     trans_mark: string;
+    gap: number | null;
     setlistnotes?: string;
     tourid: number;
     tourname: string;

@@ -5,6 +5,7 @@
     import { onMount } from 'svelte';
     import type { Snippet } from 'svelte';
     import AppSidebar from '@/components/AppSidebar.svelte';
+    import ScrollingText from '@/components/ScrollingText.svelte';
     import { sharedLiveStatus } from '@/lib/live-poll.svelte';
     import { sidebar } from '@/lib/sidebar.svelte';
 
@@ -69,9 +70,10 @@
                                     class="relative inline-flex size-2 rounded-full bg-green-500"
                                 ></span>
                             </span>
-                            <span class="truncate text-sm font-medium">
-                                {sharedLiveStatus.currentSongs}
-                            </span>
+                            <ScrollingText
+                                text={sharedLiveStatus.currentSongs ?? ''}
+                                class="min-w-0 flex-1 text-sm font-medium"
+                            />
                         </div>
                     {/if}
                 </div>

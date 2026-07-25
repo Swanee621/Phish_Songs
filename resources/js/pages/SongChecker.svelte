@@ -264,6 +264,17 @@
     const liveSlugs = $derived(new SvelteSet(liveShowRows.map((r) => r.slug)));
 
     /**
+     * The gap each song carried into the highlighted show — how many shows it
+     * had been missing before it was played there. This lives on the setlist
+     * row, so it survives the catalog's own gap resetting to zero once the play
+     * is imported, and it is the value these songs keep showing until the
+     * highlight clears the next day.
+     */
+    const liveGapBySlug = $derived(
+        new SvelteMap(liveShowRows.map((row) => [row.slug, row.gap]))
+    );
+
+    /**
      * The song on stage, which is the newest entry of the show being played.
      *
      * Only while the show is actually on: once it ends, this song stops being
@@ -913,7 +924,9 @@
                                     {:else if statShown === 'gap'}
                                         <span
                                             class="shrink-0 text-center text-xs font-medium ring-1 ring-green-800/30 text-green-400/60 rounded-4xl w-[18%] py-0.5">
-                                            {catalogBySlug.get(row.slug)?.gap ??
+                                            {liveGapBySlug.get(row.slug) ??
+                                                catalogBySlug.get(row.slug)
+                                                    ?.gap ??
                                                 '—'}
                                         </span>
                                     {/if}
@@ -1039,7 +1052,8 @@
                                         {:else if statShown === 'gap'}
                                             <span
                                                 class="shrink-0 text-center text-xs font-medium ring-1 ring-green-800/30 text-green-400/60 rounded-4xl w-[18%] py-0.5">
-                                                {song.gap}
+                                                {liveGapBySlug.get(song.slug) ??
+                                                    song.gap}
                                             </span>
                                         {/if}
                                     {/if}

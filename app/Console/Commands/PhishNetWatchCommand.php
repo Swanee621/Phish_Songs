@@ -9,17 +9,15 @@ class PhishNetWatchCommand extends Command
 {
     protected $signature = 'phish:watch';
 
-    protected $description = 'Start the background loop that re-checks the current tour on the configured interval';
+    protected $description = 'Dispatch an immediate one-off tour sync (the scheduler runs the recurring loop)';
 
     public function handle(): int
     {
-        $idle = (int) config('phishnet.sync.interval');
-        $active = (int) config('phishnet.sync.active_interval');
+        SyncPhishNetTour::dispatch(continuous: false);
 
-        SyncPhishNetTour::dispatch();
-
-        $this->info("Tour sync loop started; checking every {$active}s during a show, {$idle}s otherwise.");
-        $this->line('A queue worker must be running for the loop to advance: php artisan queue:work');
+        $this->info('Tour sync dispatched.');
+        $this->line('The recurring loop is driven by the scheduler (phish:tick, every minute), so it re-arms itself; this just triggers a sync right now.');
+        $this->line('A queue worker must be running to process it: php artisan queue:work');
 
         return self::SUCCESS;
     }

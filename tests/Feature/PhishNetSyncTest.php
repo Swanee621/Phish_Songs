@@ -875,10 +875,68 @@ test('a one-off sync job does not re-dispatch itself', function () {
     Queue::assertNothingPushed();
 });
 
-test('the watch command starts the loop', function () {
+test('the watch command dispatches an immediate one-off sync', function () {
     Queue::fake();
 
     $this->artisan('phish:watch')->assertSuccessful();
+
+    Queue::assertPushed(
+        SyncPhishNetTour::class,
+        fn (SyncPhishNetTour $job) => $job->continuous === false,
+    );
+});
+
+test('the tick command seeds the loop when nothing has run yet', function () {
+    Queue::fake();
+
+    $this->artisan('phish:tick')->assertSuccessful();
+
+    Queue::assertPushed(
+        SyncPhishNetTour::class,
+        fn (SyncPhishNetTour $job) => $job->continuous === false,
+    );
+});
+
+test('the tick command holds off while the last sync is still within the interval', function () {
+    config(['phishnet.sync.interval' => 3600]);
+    Queue::fake();
+
+    $this->travelTo('2026-07-19 12:00:00');
+    app(PhishNetRepository::class)->publishLiveState(null, false, 2026);
+
+    // Half an hour on, well inside the 3600s idle interval.
+    $this->travelTo('2026-07-19 12:30:00');
+    $this->artisan('phish:tick')->assertSuccessful();
+
+    Queue::assertNothingPushed();
+});
+
+test('the tick command dispatches once the idle interval has elapsed', function () {
+    config(['phishnet.sync.interval' => 3600]);
+    Queue::fake();
+
+    $this->travelTo('2026-07-19 12:00:00');
+    app(PhishNetRepository::class)->publishLiveState(null, false, 2026);
+
+    $this->travelTo('2026-07-19 13:00:01');
+    $this->artisan('phish:tick')->assertSuccessful();
+
+    Queue::assertPushed(SyncPhishNetTour::class);
+});
+
+test('the tick command uses the shorter active interval while a show is underway', function () {
+    config([
+        'phishnet.sync.interval' => 3600,
+        'phishnet.sync.active_interval' => 360,
+    ]);
+    Queue::fake();
+
+    $this->travelTo('2026-07-19 20:00:00');
+    app(PhishNetRepository::class)->publishLiveState(null, true, 2026);
+
+    // Ten minutes on: past the 360s active interval, far short of the 3600s idle one.
+    $this->travelTo('2026-07-19 20:10:00');
+    $this->artisan('phish:tick')->assertSuccessful();
 
     Queue::assertPushed(SyncPhishNetTour::class);
 });

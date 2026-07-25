@@ -651,6 +651,32 @@ test('the live snapshot drops the song run once the show has ended', function ()
         ->currentSongs->toBeNull();
 });
 
+test('a live show survives a momentary gap in the schedule feed', function () {
+    Queue::fake();
+
+    fakeSetlistYear(2026, []);
+    fakeScheduledShows('2026-07-19', [scheduledShowRow()]);
+    fakeEndpoint('setlists/showdate/2026-07-19.json', [
+        setlistRow(['showdate' => '2026-07-19', 'showyear' => 2026]),
+    ]);
+
+    $this->travelTo('2026-07-19 21:30:00 America/New_York');
+
+    // First run establishes the show as live.
+    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+    expect(app(PhishNetRepository::class)->liveState()['inShowWindow'])->toBeTrue();
+
+    // The schedule endpoint now blips to empty — phish.net cache miss — even
+    // though the show is still going and its setlist feed is unchanged.
+    fakeScheduledShows('2026-07-19', []);
+
+    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+
+    // The window flag holds rather than ending the show early, so an open page
+    // is never told to stop watching mid-show.
+    expect(app(PhishNetRepository::class)->liveState()['inShowWindow'])->toBeTrue();
+});
+
 test('the showdate feed lands the setlist while the year feed is still stale', function () {
     Queue::fake();
 
@@ -1016,32 +1042,26 @@ test('the live endpoint reports no version before any sync has run', function ()
         ->assertJson(['data' => ['version' => null, 'inShowWindow' => false]]);
 });
 
-test('the recent setlists page passes the client poll intervals to the browser', function () {
-    config([
-        'phishnet.client.interval' => 3600,
-        'phishnet.client.active_interval' => 60,
-    ]);
+test('the recent setlists page passes the active poll interval to the browser', function () {
+    config(['phishnet.client.active_interval' => 60]);
 
     $this->get(route('recent-setlists'))
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->component('RecentSetlists')
-            ->where('clientSyncInterval', 3600)
-            ->where('clientSyncActiveInterval', 60),
+            ->where('clientSyncActiveInterval', 60)
+            ->missing('clientSyncInterval'),
         );
 });
 
-test('the setlist browser page passes the client poll intervals to the browser', function () {
-    config([
-        'phishnet.client.interval' => 3600,
-        'phishnet.client.active_interval' => 60,
-    ]);
+test('the setlist browser page passes the active poll interval to the browser', function () {
+    config(['phishnet.client.active_interval' => 60]);
 
     $this->get(route('setlist-browser'))
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->component('SetlistBrowser')
-            ->where('clientSyncInterval', 3600)
-            ->where('clientSyncActiveInterval', 60),
+            ->where('clientSyncActiveInterval', 60)
+            ->missing('clientSyncInterval'),
         );
 });

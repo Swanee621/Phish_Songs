@@ -33,10 +33,8 @@
     const savedPrefs = readPrefsCookie<StoredPrefs>(PREFS_COOKIE_NAME);
 
     let {
-        clientSyncInterval = 3600,
         clientSyncActiveInterval = 60,
     }: {
-        clientSyncInterval?: number;
         clientSyncActiveInterval?: number;
     } = $props();
 
@@ -86,7 +84,6 @@
     }
 
     const livePoll = createLivePoll({
-        idleInterval: clientSyncInterval,
         activeInterval: clientSyncActiveInterval,
         // Only the show currently being played ever changes; historical dates
         // are static, so leave them alone.

@@ -12,10 +12,8 @@
     import type { SetlistRow } from '@/types/phishnet';
 
     let {
-        clientSyncInterval = 3600,
         clientSyncActiveInterval = 60,
     }: {
-        clientSyncInterval?: number;
         clientSyncActiveInterval?: number;
     } = $props();
 
@@ -44,7 +42,6 @@
     }
 
     const livePoll = createLivePoll({
-        idleInterval: clientSyncInterval,
         activeInterval: clientSyncActiveInterval,
         onStale: (status) => {
             if (status.year === null) {

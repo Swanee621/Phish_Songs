@@ -62,7 +62,7 @@ class SyncPhishNetTour implements ShouldBeUniqueUntilProcessing, ShouldQueue
          * still live — once its final song is marked it backs off, even though
          * the showdate lingers so an open page can still catch that last song.
          */
-        $showdate = $synchronizer->showdateInWindow();
+        $showdate = $synchronizer->currentLiveShowdate();
         $inShowWindow = $showdate !== null && ! $synchronizer->showHasEnded($showdate);
 
         $year = $synchronizer->currentShowYear();
@@ -117,7 +117,7 @@ class SyncPhishNetTour implements ShouldBeUniqueUntilProcessing, ShouldQueue
          */
         try {
             $synchronizer = app(PhishNetSynchronizer::class);
-            $showdate = $synchronizer->showdateInWindow();
+            $showdate = $synchronizer->currentLiveShowdate();
             $inShowWindow = $showdate !== null && ! $synchronizer->showHasEnded($showdate);
             $synchronizer->publishLiveState($showdate, $inShowWindow);
         } catch (Throwable) {

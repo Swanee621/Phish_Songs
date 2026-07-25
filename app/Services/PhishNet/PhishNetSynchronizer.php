@@ -144,6 +144,39 @@ class PhishNetSynchronizer
     }
 
     /**
+     * The showdate of the show currently being played, resilient to a gap in
+     * the upstream schedule feed.
+     *
+     * {@see showdateInWindow} re-derives this from the API on every call, so a
+     * single empty response — a cache miss on phish.net's end — would otherwise
+     * end a show early. When the lookup comes back empty during the gate hours,
+     * this falls back to the show last published as live, so only a marked final
+     * song ({@see showHasEnded}) or the gate closing ends it, never a momentary
+     * blip. The bias is deliberately toward staying live: the cost of a false
+     * positive is one extra poll, of a false negative a frozen live page.
+     */
+    public function currentLiveShowdate(): ?string
+    {
+        $showdate = $this->showdateInWindow();
+
+        if ($showdate !== null) {
+            return $showdate;
+        }
+
+        if (! $this->withinGate()) {
+            return null;
+        }
+
+        $published = $this->repository->liveState();
+
+        if ($published['inShowWindow'] && $published['showdate'] !== null) {
+            return $published['showdate'];
+        }
+
+        return null;
+    }
+
+    /**
      * Whether a show is live right now — inside a scheduled show's window and
      * not yet finished.
      *

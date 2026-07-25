@@ -18,7 +18,6 @@ class PhishNetExamplesController extends Controller
     public function recentSetlists(): Response
     {
         return Inertia::render('RecentSetlists', [
-            'clientSyncInterval' => (int) config('phishnet.client.interval'),
             'clientSyncActiveInterval' => (int) config('phishnet.client.active_interval'),
         ]);
     }
@@ -26,7 +25,6 @@ class PhishNetExamplesController extends Controller
     public function setlistBrowser(): Response
     {
         return Inertia::render('SetlistBrowser', [
-            'clientSyncInterval' => (int) config('phishnet.client.interval'),
             'clientSyncActiveInterval' => (int) config('phishnet.client.active_interval'),
         ]);
     }
@@ -36,7 +34,6 @@ class PhishNetExamplesController extends Controller
         return Inertia::render('SongChecker', [
             'excludedSongs' => config('services.phishnet.excluded_songs', []),
             'defaultMinPlayed' => config('app.default_min_played'),
-            'clientSyncInterval' => (int) config('phishnet.client.interval'),
             'clientSyncActiveInterval' => (int) config('phishnet.client.active_interval'),
         ]);
     }

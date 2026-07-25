@@ -103,12 +103,10 @@
     let {
         excludedSongs = [],
         defaultMinPlayed = 10,
-        clientSyncInterval = 3600,
         clientSyncActiveInterval = 60
     }: {
         excludedSongs?: string[];
         defaultMinPlayed?: number;
-        clientSyncInterval?: number;
         clientSyncActiveInterval?: number;
     } = $props();
 
@@ -192,7 +190,6 @@
     // Shared poll loop: refetch the live year whenever its version hash moves,
     // and expose the show-window flag + countdown the setlists section renders.
     const livePoll = createLivePoll({
-        idleInterval: clientSyncInterval,
         activeInterval: clientSyncActiveInterval,
         onStale: (status) => {
             if (status.year !== null) {

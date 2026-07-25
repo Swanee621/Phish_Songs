@@ -33,8 +33,6 @@ export const sharedLiveStatus = {
 };
 
 type LivePollOptions = {
-    /** Seconds between polls while no show is underway. */
-    idleInterval: number;
     /** Seconds between polls while a show is underway. */
     activeInterval: number;
     /**
@@ -91,6 +89,21 @@ export function createLivePoll(options: LivePollOptions) {
         pollTimer = setTimeout(poll, Math.max(seconds, 1) * 1000);
     }
 
+    /**
+     * Cancel any pending poll and let the countdown settle to zero. Used when a
+     * poll reports no show underway: the loop goes quiet until the page reloads
+     * rather than spending requests on a heartbeat that has nothing to watch.
+     */
+    function stopPolling() {
+        if (pollTimer !== null) {
+            clearTimeout(pollTimer);
+            pollTimer = null;
+        }
+
+        nextPollAt = Date.now();
+        secondsRemaining = 0;
+    }
+
     function poll() {
         http.get(liveStatus.url(), {
             onSuccess: (response) => {
@@ -118,15 +131,21 @@ export function createLivePoll(options: LivePollOptions) {
 
                 version = status.version;
 
-                schedule(
-                    status.inShowWindow
-                        ? options.activeInterval
-                        : options.idleInterval,
-                );
+                if (status.inShowWindow) {
+                    schedule(options.activeInterval);
+                } else {
+                    // Nothing is being played, so there is nothing to poll for.
+                    // Stop entirely rather than idling on a heartbeat — the page
+                    // picks a show back up on its next load. The server keeps the
+                    // window flag sticky across upstream blips, so a live show is
+                    // never mistaken for this state.
+                    stopPolling();
+                }
             },
-            // Keep the loop alive across a failed poll, backing off to idle.
-            onError: () => schedule(options.idleInterval),
-            onNetworkError: () => schedule(options.idleInterval),
+            // A failed poll says nothing about the show, so keep retrying on the
+            // active cadence rather than giving up — a live page must recover.
+            onError: () => schedule(options.activeInterval),
+            onNetworkError: () => schedule(options.activeInterval),
         });
     }
 

@@ -54,6 +54,26 @@ class PhishNetSynchronizer
     }
 
     /**
+     * Sync a single show date from the per-showdate feed. Returns true when the
+     * payload had changed.
+     *
+     * This is the feed that matters during a live show: phish.net refreshes it
+     * minutes ahead of the bulk year feed, so importing from it directly is what
+     * keeps a setlist landing on the page while the show is still going. The
+     * current year's cached payload is dropped so the page rebuilds it from the
+     * rows this just wrote.
+     */
+    public function syncShowdate(string $showdate): bool
+    {
+        $rows = $this->client->fetchSetlistForShowdate($showdate);
+
+        return $this->whenChanged("setlists.showdate.{$showdate}", $rows, function () use ($showdate, $rows) {
+            $this->importer->importSetlistShowdate($rows);
+            $this->repository->forgetYear((int) substr($showdate, 0, 4));
+        });
+    }
+
+    /**
      * Sync the song catalog. Returns true when the payload had changed.
      */
     public function syncSongs(): bool
@@ -234,6 +254,23 @@ class PhishNetSynchronizer
         $version = PhishNetSyncState::query()
             ->where('key', "setlists.year.{$year}")
             ->value('hash');
+
+        /*
+         * While a show is scheduled the page is fed from the per-showdate sync,
+         * whose hash moves as songs land — minutes before the year hash catches
+         * up. Publishing that hash as the version is what lets an open page pick
+         * up tonight's setlist on its next poll instead of waiting for the slow
+         * year feed.
+         */
+        if ($showdate !== null) {
+            $showdateVersion = PhishNetSyncState::query()
+                ->where('key', "setlists.showdate.{$showdate}")
+                ->value('hash');
+
+            if ($showdateVersion !== null) {
+                $version = $showdateVersion;
+            }
+        }
 
         $highlight = $this->highlightWindow();
 

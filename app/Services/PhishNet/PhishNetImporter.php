@@ -50,6 +50,38 @@ class PhishNetImporter
     }
 
     /**
+     * Import the setlist for a single show date.
+     *
+     * Used while a show is being played, when phish.net's per-showdate feed
+     * carries the night's new songs minutes before the bulk year feed does.
+     * Shares the year import's upserts but scopes its cleanup to the shows in the
+     * payload, so it never reaches outside the date it was handed.
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     */
+    public function importSetlistShowdate(array $rows): void
+    {
+        DB::transaction(function () use ($rows) {
+            $this->upsertVenues($rows);
+            $this->upsertTours($rows);
+            $this->upsertShows($rows);
+            $this->upsertSetlistEntries($rows);
+
+            $showIds = collect($rows)->pluck('showid')->unique()->all();
+
+            /*
+             * Drop entries that vanished from the payload — an upstream setlist
+             * correction. An empty payload yields no show ids, so the scope is
+             * empty and nothing is deleted rather than the show being wiped.
+             */
+            SetlistEntry::query()
+                ->whereIn('showid', $showIds)
+                ->whereNotIn('uniqueid', collect($rows)->pluck('uniqueid')->all())
+                ->delete();
+        });
+    }
+
+    /**
      * Import the full song catalog.
      *
      * @param  array<int, array<string, mixed>>  $rows

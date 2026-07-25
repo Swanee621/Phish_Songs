@@ -67,12 +67,23 @@ class SyncPhishNetTour implements ShouldBeUniqueUntilProcessing, ShouldQueue
 
         $year = $synchronizer->currentShowYear();
 
+        $changed = $synchronizer->syncYear($year);
+
         /*
-         * A changed year means new plays, and possibly songs whose catalog
+         * While a show is scheduled, also pull its own feed. It refreshes minutes
+         * ahead of the bulk year feed, so this is what actually lands tonight's
+         * new songs in time for an open page to see them.
+         */
+        if ($showdate !== null) {
+            $changed = $synchronizer->syncShowdate($showdate) || $changed;
+        }
+
+        /*
+         * A changed payload means new plays, and possibly songs whose catalog
          * counts moved, so the catalog is only re-checked when that happens.
          */
-        if ($synchronizer->syncYear($year)) {
-           $synchronizer->syncSongs();
+        if ($changed) {
+            $synchronizer->syncSongs();
         }
 
         /*

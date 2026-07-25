@@ -651,6 +651,36 @@ test('the live snapshot drops the song run once the show has ended', function ()
         ->currentSongs->toBeNull();
 });
 
+test('the showdate feed lands the setlist while the year feed is still stale', function () {
+    Queue::fake();
+
+    // The bulk year feed has not refreshed yet — it still returns nothing.
+    fakeSetlistYear(2026, []);
+    fakeScheduledShows('2026-07-19', [scheduledShowRow()]);
+
+    // The per-showdate feed already carries tonight's opener.
+    fakeEndpoint('setlists/showdate/2026-07-19.json', [
+        setlistRow([
+            'showdate' => '2026-07-19',
+            'showyear' => 2026,
+            'song' => 'Chalk Dust Torture',
+            'slug' => 'chalk-dust-torture',
+        ]),
+    ]);
+
+    $this->travelTo('2026-07-19 21:30:00 America/New_York');
+
+    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+
+    // Imported straight from the showdate feed despite the empty year feed...
+    expect(SetlistEntry::query()->where('slug', 'chalk-dust-torture')->exists())->toBeTrue();
+
+    // ...and the published version follows the showdate hash so an open page refreshes.
+    expect(app(PhishNetRepository::class)->liveState())
+        ->version->not->toBeNull()
+        ->inShowWindow->toBeTrue();
+});
+
 test('the song performances endpoint serves the five most recent plays newest first', function () {
     $synchronizer = app(PhishNetSynchronizer::class);
 

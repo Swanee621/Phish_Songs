@@ -1042,6 +1042,22 @@ test('the live endpoint reports no version before any sync has run', function ()
         ->assertJson(['data' => ['version' => null, 'inShowWindow' => false]]);
 });
 
+test('the header live-song display config is shared with every page', function () {
+    config([
+        'phishnet.header.live_song_display' => 'wrap',
+        'phishnet.header.live_song_max_lines' => 3,
+    ]);
+
+    $this->get(route('home'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('SongChecker')
+            ->where('liveSongDisplay', 'wrap')
+            ->where('liveSongMaxLines', 3)
+            ->etc(),
+        );
+});
+
 test('the recent setlists page passes the active poll interval to the browser', function () {
     config(['phishnet.client.active_interval' => 60]);
 

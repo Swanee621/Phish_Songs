@@ -20,6 +20,8 @@ declare module '@inertiajs/core' {
             name: string;
             sidebarCollapsed: boolean;
             sidebarEnabled: boolean;
+            liveSongDisplay: 'scroll' | 'wrap';
+            liveSongMaxLines: number;
             [key: string]: unknown;
         };
     }

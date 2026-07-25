@@ -42,6 +42,8 @@ class HandleInertiaRequests extends Middleware
                 ? $request->cookie('sidebar_state') === 'true'
                 : config('app.sidebar_collapsed'),
             'sidebarEnabled' => config('app.sidebar_enabled'),
+            'liveSongDisplay' => config('phishnet.header.live_song_display'),
+            'liveSongMaxLines' => (int) config('phishnet.header.live_song_max_lines'),
         ];
     }
 }

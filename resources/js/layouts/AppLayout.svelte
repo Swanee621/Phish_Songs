@@ -12,6 +12,8 @@
     let { children }: { children?: Snippet } = $props();
 
     const sidebarEnabled = $derived(page.props.sidebarEnabled);
+    const liveSongDisplay = $derived(page.props.liveSongDisplay);
+    const liveSongMaxLines = $derived(page.props.liveSongMaxLines);
 
     if (page.props.sidebarEnabled && typeof window !== 'undefined') {
         sidebar.restore(!page.props.sidebarCollapsed);
@@ -37,7 +39,7 @@
             class="relative flex w-full flex-1 flex-col overflow-x-hidden bg-background md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow-sm md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-2"
         >
             <header
-                class="flex h-16 shrink-0 items-center gap-1 border-b border-sidebar-border/70 pr-4 pl-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12 md:px-4"
+                class="flex min-h-16 shrink-0 items-center gap-1 border-b border-sidebar-border/70 pr-4 pl-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:min-h-12 md:px-4"
             >
                 <div class="flex min-w-0 flex-1 items-center gap-1">
                     <button
@@ -70,10 +72,19 @@
                                     class="relative inline-flex size-2 rounded-full bg-green-500"
                                 ></span>
                             </span>
-                            <ScrollingText
-                                text={sharedLiveStatus.currentSongs ?? ''}
-                                class="min-w-0 flex-1 text-sm font-medium"
-                            />
+                            {#if liveSongDisplay === 'wrap'}
+                                <span
+                                    class="min-w-0 flex-1 overflow-hidden text-sm leading-tight font-medium"
+                                    style="display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:{liveSongMaxLines};"
+                                >
+                                    {sharedLiveStatus.currentSongs}
+                                </span>
+                            {:else}
+                                <ScrollingText
+                                    text={sharedLiveStatus.currentSongs ?? ''}
+                                    class="min-w-0 flex-1 text-sm font-medium"
+                                />
+                            {/if}
                         </div>
                     {/if}
                 </div>

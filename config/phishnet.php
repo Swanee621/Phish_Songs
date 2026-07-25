@@ -79,6 +79,32 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Header Live Song
+    |--------------------------------------------------------------------------
+    |
+    | How the "on stage right now" run is shown in the app header when it is too
+    | long to fit the space beside the live dot.
+    |
+    */
+
+    'header' => [
+
+        /**
+         * 'scroll' animates a long run back and forth; 'wrap' lets it flow onto
+         * up to `live_song_max_lines` lines and clips anything past that.
+         */
+        'live_song_display' => env('HEADER_LIVE_SONG_DISPLAY', 'scroll'),
+
+        /**
+         * The most lines a wrapped run may take before it is clipped. Ignored
+         * while `live_song_display` is 'scroll'.
+         */
+        'live_song_max_lines' => (int) env('HEADER_LIVE_SONG_MAX_LINES', 2),
+
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Show Window
     |--------------------------------------------------------------------------
     |

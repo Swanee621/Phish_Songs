@@ -1082,7 +1082,7 @@
                                     >
                                 </div>
                             {/if}
-                            {#each tourShows.reverse() as rows (rows[0].showid)}
+                            {#each tourShows as rows (rows[0].showid)}
                                 <div class="border-b p-5 border-white">
                                     <SetlistView
                                         {rows}

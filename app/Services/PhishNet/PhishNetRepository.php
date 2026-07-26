@@ -158,15 +158,17 @@ class PhishNetRepository
      */
     public function liveState(): array
     {
-        return Cache::get($this->key('live'), []) + [
-            'version' => null,
-            'inShowWindow' => false,
-            'year' => null,
-            'showdate' => null,
-            'highlightShowdate' => null,
-            'highlightUntil' => null,
-            'currentSongs' => null,
-            'updatedAt' => null,
+        $live = Cache::get($this->key('live'), []);
+
+        return [
+            'version' => $live['version'] ?? null,
+            'inShowWindow' => (bool) ($live['inShowWindow'] ?? false),
+            'year' => $live['year'] ?? null,
+            'showdate' => $live['showdate'] ?? null,
+            'highlightShowdate' => $live['highlightShowdate'] ?? null,
+            'highlightUntil' => $live['highlightUntil'] ?? null,
+            'currentSongs' => $live['currentSongs'] ?? null,
+            'updatedAt' => $live['updatedAt'] ?? null,
         ];
     }
 

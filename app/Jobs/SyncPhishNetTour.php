@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Services\PhishNet\PhishNetRepository;
 use App\Services\PhishNet\PhishNetSynchronizer;
 use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -11,20 +12,25 @@ use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
- * Checks the currently running tour for changes, then re-dispatches itself so
- * the check repeats.
+ * One pass of the phish.net sync, in one of two modes:
  *
- * The delay before the next run depends on whether a show is underway: setlists
- * only move while Phish is on stage, so the loop polls on
- * `phishnet.sync.active_interval` inside a show window and backs off to
- * `phishnet.sync.interval` the rest of the time.
+ * - Idle (no show tonight): refresh the current show year and the song catalog,
+ *   once per `phishnet.sync.interval` (hourly by default). Historical years
+ *   never change, so they are imported once by `phish:backfill` and then read
+ *   from the database forever.
+ * - Show night: poll only tonight's per-showdate feed, once per
+ *   `phishnet.sync.active_interval`. That single payload carries the songs and
+ *   the show notes both, and doubles as the end-of-show check, so a live pass
+ *   costs two API calls in total (schedule lookup + setlist).
  *
- * Only the live show year is polled — historical years never change, so they are
- * imported once by `phish:backfill` and then read from the database forever.
+ * The scheduler's `phish:tick` drives the cadence, dispatching this as a
+ * one-off whenever the applicable interval has elapsed. The self-re-dispatch
+ * path (`$continuous`) remains for a manually started standalone loop.
  *
  * The uniqueness lock is released once processing starts rather than when the
- * job finishes, because this job re-dispatches itself from inside `handle()`;
- * holding the lock to completion would silently swallow that next run.
+ * job finishes, because a continuous run re-dispatches itself from inside
+ * `handle()`; holding the lock to completion would silently swallow that next
+ * run.
  */
 #[Backoff([30, 60, 120])]
 class SyncPhishNetTour implements ShouldBeUniqueUntilProcessing, ShouldQueue
@@ -55,36 +61,31 @@ class SyncPhishNetTour implements ShouldBeUniqueUntilProcessing, ShouldQueue
 
     public function handle(PhishNetSynchronizer $synchronizer): void
     {
-        /*
-         * Read before syncing, so a show that starts mid-run still tightens the
-         * interval on this pass rather than the next one. The showdate is the
-         * show scheduled for now; the loop stays fast only while that show is
-         * still live — once its final song is marked it backs off, even though
-         * the showdate lingers so an open page can still catch that last song.
-         */
         $showdate = $synchronizer->currentLiveShowdate();
-        $inShowWindow = $showdate !== null && ! $synchronizer->showHasEnded($showdate);
 
-        $year = $synchronizer->currentShowYear();
-
-        $changed = $synchronizer->syncYear($year);
-
-        /*
-         * While a show is scheduled, also pull its own feed. It refreshes minutes
-         * ahead of the bulk year feed, so this is what actually lands tonight's
-         * new songs in time for an open page to see them.
-         */
-        if ($showdate !== null) {
-            $changed = $synchronizer->syncShowdate($showdate) || $changed;
-        }
-
-        /*
-         * A changed payload means new plays, and possibly songs whose catalog
-         * counts moved, so the catalog is only re-checked when that happens.
-         */
-        if ($changed) {
+        if ($showdate === null) {
+            /*
+             * Idle: the hourly once-over. The year feed catches upstream
+             * setlist corrections, and the song catalog the play counts and
+             * gaps that moved with them.
+             */
+            $synchronizer->syncYear($synchronizer->currentShowYear());
             $synchronizer->syncSongs();
+            $synchronizer->publishLiveState(null, false);
+            $this->scheduleNextRun(false);
+
+            return;
         }
+
+        /*
+         * Show night: tonight's feed is the only one that moves, so it is the
+         * only one fetched — one payload carrying the songs and the show notes,
+         * whose final-song marker also tells the loop when to back off. The
+         * year and song catalogs catch up on the first idle run the morning
+         * after. The showdate itself lingers past the final song so an open
+         * page can still catch it; only the pacing drops back to idle.
+         */
+        $inShowWindow = $synchronizer->syncLiveShow($showdate);
 
         /*
          * Republish the snapshot the browser polls, so an open page picks up
@@ -111,15 +112,17 @@ class SyncPhishNetTour implements ShouldBeUniqueUntilProcessing, ShouldQueue
          * Keep the loop alive across a failed run, otherwise a single upstream
          * outage silently stops all future syncing.
          *
-         * Re-checking the window costs one request, and falls back to the idle
-         * interval when that request fails too — backing off is the right
-         * response to an upstream that is already refusing us.
+         * Re-publishing the last known state touches only the database, never
+         * the API that just refused us, and restamping its clock is what lets
+         * `phish:tick` wait out the normal interval instead of re-dispatching
+         * every minute into the outage. Trusting a possibly stale window flag
+         * is the documented bias: a false "live" costs one extra poll, a false
+         * "idle" a frozen live page.
          */
         try {
-            $synchronizer = app(PhishNetSynchronizer::class);
-            $showdate = $synchronizer->currentLiveShowdate();
-            $inShowWindow = $showdate !== null && ! $synchronizer->showHasEnded($showdate);
-            $synchronizer->publishLiveState($showdate, $inShowWindow);
+            $live = app(PhishNetRepository::class)->liveState();
+            $inShowWindow = $live['inShowWindow'];
+            app(PhishNetSynchronizer::class)->publishLiveState($live['showdate'], $inShowWindow);
         } catch (Throwable) {
             $inShowWindow = false;
         }

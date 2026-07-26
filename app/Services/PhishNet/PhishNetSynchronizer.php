@@ -54,23 +54,28 @@ class PhishNetSynchronizer
     }
 
     /**
-     * Sync a single show date from the per-showdate feed. Returns true when the
-     * payload had changed.
+     * Sync a live show night from its per-showdate feed, in one fetch. Returns
+     * true while the show is still going — the night's final song has not yet
+     * been marked ({@see setlistHasEnded}).
      *
      * This is the feed that matters during a live show: phish.net refreshes it
-     * minutes ahead of the bulk year feed, so importing from it directly is what
-     * keeps a setlist landing on the page while the show is still going. The
-     * current year's cached payload is dropped so the page rebuilds it from the
-     * rows this just wrote.
+     * minutes ahead of the bulk year feed, and its rows carry the show's notes
+     * alongside the songs, so one payload keeps the setlist and the notes both
+     * current. The current year's cached payload is dropped on change so the
+     * page rebuilds it from the rows this just wrote. The same payload answers
+     * whether the final song has landed, so the ended-check costs no second
+     * request.
      */
-    public function syncShowdate(string $showdate): bool
+    public function syncLiveShow(string $showdate): bool
     {
         $rows = $this->client->fetchSetlistForShowdate($showdate);
 
-        return $this->whenChanged("setlists.showdate.{$showdate}", $rows, function () use ($showdate, $rows) {
+        $this->whenChanged("setlists.showdate.{$showdate}", $rows, function () use ($showdate, $rows) {
             $this->importer->importSetlistShowdate($rows);
             $this->repository->forgetYear((int) substr($showdate, 0, 4));
         });
+
+        return ! $this->setlistHasEnded($rows);
     }
 
     /**
@@ -120,9 +125,10 @@ class PhishNetSynchronizer
      * no scheduled show is underway.
      *
      * The outer gate short-circuits most of the day without touching the API.
-     * Inside it, today and yesterday are both candidates: an evening show
-     * belongs to today's showdate, but after midnight a show that is still
-     * running belongs to yesterday's.
+     * Inside it, exactly one date can have a show in its window — a window
+     * opens at the show's local evening and runs into the small hours, so in
+     * the gate's evening leg that date is today, and after midnight it is
+     * yesterday. Only that one date is worth a schedule lookup.
      */
     public function showdateInWindow(): ?string
     {
@@ -132,11 +138,13 @@ class PhishNetSynchronizer
 
         $gateNow = now()->setTimezone((string) config('phishnet.show_window.gate_timezone'));
 
-        foreach ([$gateNow->toDateString(), $gateNow->copy()->subDay()->toDateString()] as $showdate) {
-            foreach ($this->phishShowsScheduledFor($showdate) as $show) {
-                if ($this->nowIsInsideWindowFor($showdate, $this->timezone->resolveForShow($show))) {
-                    return $showdate;
-                }
+        $showdate = $gateNow->hour >= (int) config('phishnet.show_window.gate_start_hour')
+            ? $gateNow->toDateString()
+            : $gateNow->copy()->subDay()->toDateString();
+
+        foreach ($this->phishShowsScheduledFor($showdate) as $show) {
+            if ($this->nowIsInsideWindowFor($showdate, $this->timezone->resolveForShow($show))) {
+                return $showdate;
             }
         }
 
@@ -194,15 +202,27 @@ class PhishNetSynchronizer
     }
 
     /**
-     * Whether the show on a given date has played its last song.
+     * Whether the show on a given date has played its last song. Fetches the
+     * date's setlist to find out; callers that already hold the payload should
+     * use {@see setlistHasEnded} instead.
+     */
+    public function showHasEnded(string $showdate): bool
+    {
+        return $this->setlistHasEnded($this->client->fetchSetlistForShowdate($showdate));
+    }
+
+    /**
+     * Whether a setlist payload contains the night's final song.
      *
      * The API has no end-of-show flag, but the closing song of every show is
      * tagged with {@see FINAL_SONG_TRANSITION}, so its presence in the setlist
      * means the night is over even though the time window is still open.
+     *
+     * @param  array<int, array<string, mixed>>  $rows
      */
-    public function showHasEnded(string $showdate): bool
+    public function setlistHasEnded(array $rows): bool
     {
-        foreach ($this->client->fetchSetlistForShowdate($showdate) as $entry) {
+        foreach ($rows as $entry) {
             if ((int) ($entry['transition'] ?? 0) === self::FINAL_SONG_TRANSITION) {
                 return true;
             }
@@ -219,11 +239,13 @@ class PhishNetSynchronizer
     {
         $showdate = $this->showdateInWindow();
 
-        if ($showdate === null || $this->showHasEnded($showdate)) {
+        if ($showdate === null) {
             return false;
         }
 
-        return $this->client->fetchSetlistForShowdate($showdate) !== [];
+        $rows = $this->client->fetchSetlistForShowdate($showdate);
+
+        return $rows !== [] && ! $this->setlistHasEnded($rows);
     }
 
     /**

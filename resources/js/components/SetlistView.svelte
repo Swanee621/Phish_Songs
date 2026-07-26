@@ -97,6 +97,7 @@
         {/each}
 
         {#if notes}
+            <!-- eslint-disable-next-line svelte/no-at-html-tags -->
             <p class="mt-3 text-sm text-muted-foreground">{@html notes}</p>
         {/if}
     </div>

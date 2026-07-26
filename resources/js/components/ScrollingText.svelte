@@ -29,10 +29,9 @@
 
     // Re-measure whenever the text changes or either box is resized, so the
     // scroll only kicks in when it is actually needed and spans the right gap.
+    // A new song needs no explicit dependency here: `{#key text}` recreates the
+    // content element, which re-binds `content` and re-runs this effect.
     $effect(() => {
-        // Referenced so the effect re-runs — and re-measures — on a new song.
-        text;
-
         measure();
 
         if (container === null) {

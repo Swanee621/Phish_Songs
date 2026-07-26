@@ -16,16 +16,17 @@ return [
     'sync' => [
 
         /**
-         * Seconds between checks of the currently running tour while no show is
-         * underway. Each check is a single API request; the database and cache
-         * are only written when the returned payload differs from the last one
-         * imported.
+         * Seconds between idle checks, while no show is underway: one request
+         * for the current year's setlists and one for the song catalog. The
+         * database and cache are only written when a returned payload differs
+         * from the last one imported.
          */
         'interval' => (int) env('PHISHNET_SYNC_INTERVAL', 3600),
 
         /**
-         * Seconds between checks while a show is underway, when setlists are
-         * being entered upstream and the payload actually moves.
+         * Seconds between checks while a show is underway, when the loop
+         * switches to polling only tonight's setlist feed (which carries the
+         * show notes with it) plus the day's schedule.
          *
          * phish.net caches responses for a few minutes and asks that clients
          * poll no faster than every ~5 minutes, so this must stay above 300.

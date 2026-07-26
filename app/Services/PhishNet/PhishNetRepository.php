@@ -121,9 +121,11 @@ class PhishNetRepository
      * @param  int|null  $excludeTourId  A tour to leave out, so the caller can
      *                                   ask for history either side of the one
      *                                   it is already listing in full.
+     * @param  int  $offset  How many of the newest rows to skip, for a caller
+     *                       paging back through the history a screen at a time.
      * @return array<int, array<string, mixed>>
      */
-    public function recentPerformances(string $slug, int $limit, ?int $excludeTourId = null): array
+    public function recentPerformances(string $slug, int $limit, ?int $excludeTourId = null, int $offset = 0): array
     {
         return $this->setlistQuery()
             ->where('setlist_entries.slug', $slug)
@@ -139,6 +141,7 @@ class PhishNetRepository
             ))
             ->orderByDesc('shows.showdate')
             ->orderByDesc('setlist_entries.position')
+            ->offset($offset)
             ->limit($limit)
             ->get()
             ->map(fn ($row) => (array) $row)

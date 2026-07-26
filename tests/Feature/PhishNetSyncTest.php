@@ -55,6 +55,28 @@ function fakeSetlistYear(int $year, array $rows): void
 }
 
 /**
+ * One show a year, each on its own tour, so a slug has a history long enough
+ * for the song dialog's paging to have something to page through.
+ */
+function syncPerformanceYears(int $from, int $to): void
+{
+    $synchronizer = app(PhishNetSynchronizer::class);
+
+    foreach (range($from, $to) as $index => $year) {
+        fakeSetlistYear($year, [setlistRow([
+            'showid' => 1000 + $index,
+            'uniqueid' => 2000 + $index,
+            'showdate' => "{$year}-07-25",
+            'showyear' => $year,
+            'tourid' => 300 + $index,
+            'tourname' => "{$year} Tour",
+        ])]);
+
+        $synchronizer->syncYear($year);
+    }
+}
+
+/**
  * @param  array<string, mixed>  $overrides
  * @return array<string, mixed>
  */
@@ -707,19 +729,8 @@ test('the showdate feed lands the setlist while the year feed is still stale', f
         ->inShowWindow->toBeTrue();
 });
 
-test('the song performances endpoint serves the five most recent plays newest first', function () {
-    $synchronizer = app(PhishNetSynchronizer::class);
-
-    foreach (range(2019, 2025) as $index => $year) {
-        fakeSetlistYear($year, [setlistRow([
-            'showid' => 1000 + $index,
-            'uniqueid' => 2000 + $index,
-            'showdate' => "{$year}-07-25",
-            'showyear' => $year,
-        ])]);
-
-        $synchronizer->syncYear($year);
-    }
+test('the song performances endpoint serves a page of plays newest first', function () {
+    syncPerformanceYears(2019, 2025);
 
     $response = $this->getJson(route('data.song-performances', ['slug' => 'first-tube']))
         ->assertOk();
@@ -730,7 +741,72 @@ test('the song performances endpoint serves the five most recent plays newest fi
         '2023-07-25',
         '2022-07-25',
         '2021-07-25',
+        '2020-07-25',
+        '2019-07-25',
     ]);
+});
+
+test('the song performances endpoint caps a page and says more is waiting', function () {
+    syncPerformanceYears(2013, 2025);
+
+    $this->getJson(route('data.song-performances', ['slug' => 'first-tube']))
+        ->assertOk()
+        ->assertJsonCount(10, 'data')
+        ->assertJsonPath('data.0.showdate', '2025-07-25')
+        ->assertJsonPath('meta.offset', 0)
+        ->assertJsonPath('meta.perPage', 10)
+        ->assertJsonPath('meta.hasMore', true);
+});
+
+test('the song performances endpoint picks up where an offset left off', function () {
+    syncPerformanceYears(2013, 2025);
+
+    $response = $this->getJson(route('data.song-performances', [
+        'slug' => 'first-tube',
+        'offset' => 10,
+    ]))
+        ->assertOk()
+        ->assertJsonCount(3, 'data')
+        ->assertJsonPath('meta.offset', 10)
+        ->assertJsonPath('meta.hasMore', false);
+
+    /** The tail of the history, with nothing repeated from the first page. */
+    expect($response->json('data.*.showdate'))->toBe([
+        '2015-07-25',
+        '2014-07-25',
+        '2013-07-25',
+    ]);
+});
+
+test('an offset counts the rows an excluded tour left behind, not the ones it removed', function () {
+    syncPerformanceYears(2013, 2025);
+
+    /** Twelve rows survive the exclusion, so page two holds the last two. */
+    $response = $this->getJson(route('data.song-performances', [
+        'slug' => 'first-tube',
+        'exclude_tour' => 312,
+        'offset' => 10,
+    ]))
+        ->assertOk()
+        ->assertJsonCount(2, 'data')
+        ->assertJsonPath('meta.hasMore', false);
+
+    expect($response->json('data.*.showdate'))->toBe([
+        '2014-07-25',
+        '2013-07-25',
+    ]);
+});
+
+test('the song performances endpoint treats a negative offset as the first page', function () {
+    syncPerformanceYears(2024, 2025);
+
+    $this->getJson(route('data.song-performances', [
+        'slug' => 'first-tube',
+        'offset' => -5,
+    ]))
+        ->assertOk()
+        ->assertJsonCount(2, 'data')
+        ->assertJsonPath('meta.offset', 0);
 });
 
 test('the song performances endpoint carries the venue and permalink the dialog links to', function () {
@@ -804,7 +880,10 @@ test('a show belonging to no tour survives the tour exclusion', function () {
 test('the song performances endpoint reports nothing for a song never played', function () {
     $this->getJson(route('data.song-performances', ['slug' => 'gamehendge-overture']))
         ->assertOk()
-        ->assertExactJson(['data' => []]);
+        ->assertExactJson([
+            'data' => [],
+            'meta' => ['offset' => 0, 'perPage' => 10, 'hasMore' => false],
+        ]);
 });
 
 test('the song performances endpoint reflects a show that has just been imported', function () {

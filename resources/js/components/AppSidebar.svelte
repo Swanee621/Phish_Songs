@@ -9,7 +9,7 @@
     import {
         recentSetlists,
         setlistBrowser,
-    } from '@/actions/App/Http/Controllers/PhishNetExamplesController';
+    } from '@/actions/App/Http/Controllers/AppController';
     import { sidebar } from '@/lib/sidebar.svelte';
     import { home } from '@/routes';
 

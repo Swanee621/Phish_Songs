@@ -1,5 +1,5 @@
 import { useHttp } from '@inertiajs/svelte';
-import { liveStatus } from '@/actions/App/Http/Controllers/PhishNetExamplesController';
+import { liveStatus } from '@/actions/App/Http/Controllers/AppController';
 
 type LiveStatus = {
     version: string | null;

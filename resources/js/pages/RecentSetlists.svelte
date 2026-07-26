@@ -5,7 +5,7 @@
     import {
         currentYearSetlists,
         setlistsForYear,
-    } from '@/actions/App/Http/Controllers/PhishNetExamplesController';
+    } from '@/actions/App/Http/Controllers/AppController';
     import AppHead from '@/components/AppHead.svelte';
     import SetlistView from '@/components/SetlistView.svelte';
     import { createLivePoll, formatCountdown } from '@/lib/live-poll.svelte';

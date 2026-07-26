@@ -24,14 +24,14 @@ class PhishNetSynchronizer
      * the next song; the last song of the night is the only one tagged with a 6,
      * which is the closest thing the API has to an "end of show" flag.
      */
-    protected const FINAL_SONG_TRANSITION = 6;
+    protected const int FINAL_SONG_TRANSITION = 6;
 
     /**
      * The lowest phish.net `transition` code that closes a set. From this code
      * up — a setbreak, the gap before an encore, the end of the show — the band
      * is off stage, so there is nothing currently being played.
      */
-    protected const SET_CLOSING_TRANSITION = 4;
+    protected const int SET_CLOSING_TRANSITION = 4;
 
     public function __construct(
         protected PhishNetClient $client,

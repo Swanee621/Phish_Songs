@@ -9,8 +9,8 @@
         setlistsForYear,
         showYears,
         songPerformances,
-        songs as songsRoute
-    } from '@/actions/App/Http/Controllers/PhishNetExamplesController';
+        songs as songsRoute,
+    } from '@/actions/App/Http/Controllers/AppController';
     import AppHead from '@/components/AppHead.svelte';
     import SetlistView from '@/components/SetlistView.svelte';
     import { createLivePoll, formatCountdown } from '@/lib/live-poll.svelte';
@@ -57,7 +57,7 @@
         { key: 'state', label: 'State' },
         { key: 'country', label: 'Country' },
         { key: 'tourname', label: 'Tour' },
-        { key: 'tourwhen', label: 'Tour Run' }
+        { key: 'tourwhen', label: 'Tour Run' },
     ];
 
     const badgeClasses = (isSelected: boolean): string =>
@@ -103,7 +103,7 @@
     let {
         excludedSongs = [],
         defaultMinPlayed = 10,
-        clientSyncActiveInterval = 60
+        clientSyncActiveInterval = 60,
     }: {
         excludedSongs?: string[];
         defaultMinPlayed?: number;
@@ -117,15 +117,15 @@
     let showFullSetlists = $state(
         typeof savedPrefs?.showFullSetlists === 'boolean'
             ? savedPrefs.showFullSetlists
-            : false
+            : false,
     );
     let filtersOpen = $state(
         typeof savedPrefs?.filtersOpen === 'boolean'
             ? savedPrefs.filtersOpen
-            : true
+            : true,
     );
     let viewMode = $state<ViewMode>(
-        savedPrefs?.viewMode === 'played' ? 'played' : 'not-played'
+        savedPrefs?.viewMode === 'played' ? 'played' : 'not-played',
     );
 
     type StatShown = 'gap' | 'play-count' | 'tour-plays' | null;
@@ -133,12 +133,12 @@
         'gap',
         'play-count',
         'tour-plays',
-        null
+        null,
     ];
     let statShown = $state<StatShown>(
         STAT_SHOWN_VALUES.includes(savedPrefs?.statShown ?? null)
             ? (savedPrefs?.statShown ?? null)
-            : null
+            : null,
     );
 
     let currentYear = $state<number | null>(null);
@@ -153,38 +153,51 @@
 
     /**
      * The song's most recent performances anywhere, which the server looks up
-     * per dialog rather than the page holding every year in memory.
+     * per dialog rather than the page holding every year in memory. A page at a
+     * time, extended as the dialog is scrolled: a well-worn song has hundreds of
+     * these behind it, and most dialogs are closed after the first few.
      */
     let recentPerformances = $state<SetlistRow[]>([]);
     let recentPerformancesLoading = $state(false);
+    let recentPerformancesLoadingMore = $state(false);
+    let recentPerformancesHasMore = $state(false);
+
+    /**
+     * The tour the dialog was opened from, held for the length of the dialog so
+     * every page asks the server to exclude the same one.
+     */
+    let dialogExcludeTourId = $state<number | null>(null);
+
+    let dialogScroller = $state<HTMLDivElement | null>(null);
+    let performancesSentinel = $state<HTMLDivElement | null>(null);
 
     let minTimesPlayed = $state(
         typeof savedPrefs?.minTimesPlayed === 'number'
             ? savedPrefs.minTimesPlayed
-            : defaultMinPlayed
+            : defaultMinPlayed,
     );
     let minGap = $state(
-        typeof savedPrefs?.minGap === 'number' ? savedPrefs.minGap : 0
+        typeof savedPrefs?.minGap === 'number' ? savedPrefs.minGap : 0,
     );
     let onlyPhishSongs = $state(
         typeof savedPrefs?.onlyPhishSongs === 'boolean'
             ? savedPrefs.onlyPhishSongs
-            : true
+            : true,
     );
 
     const yearData = new SvelteMap<number, SetlistRow[]>();
 
     const yearsHttp = useHttp<Record<string, never>, { data: ShowYear[] }>({});
     const setlistsHttp = useHttp<Record<string, never>, { data: SetlistRow[] }>(
-        {}
+        {},
     );
     const songsHttp = useHttp<Record<string, never>, { data: Song[] }>({});
     const refreshHttp = useHttp<Record<string, never>, { data: SetlistRow[] }>(
-        {}
+        {},
     );
     const performancesHttp = useHttp<
         Record<string, never>,
-        { data: SetlistRow[] }
+        { data: SetlistRow[]; meta: { hasMore: boolean } }
     >({});
 
     // Shared poll loop: refetch the live year whenever its version hash moves,
@@ -195,7 +208,7 @@
             if (status.year !== null) {
                 refreshLoadedYear(status.year);
             }
-        }
+        },
     });
 
     function refreshLoadedYear(year: number) {
@@ -214,14 +227,14 @@
                     currentTours = buildToursForYear(year);
 
                     const index = currentTours.findIndex(
-                        (tour) => tour.tourid === preservedTourId
+                        (tour) => tour.tourid === preservedTourId,
                     );
 
                     if (index !== -1) {
                         tourIndex = index;
                     }
                 }
-            }
+            },
         });
     }
 
@@ -235,12 +248,12 @@
         }
 
         return (yearData.get(selectedTour.year) ?? []).filter(
-            (row) => row.artistid === 1 && row.tourid === selectedTour.tourid
+            (row) => row.artistid === 1 && row.tourid === selectedTour.tourid,
         );
     });
 
     const countedRows = $derived(
-        tourRows.filter((row) => !excludedSet.has(row.slug))
+        tourRows.filter((row) => !excludedSet.has(row.slug)),
     );
 
     /**
@@ -258,7 +271,7 @@
     const liveShowRows = $derived(
         liveShowdate === null
             ? []
-            : tourRows.filter((row) => row.showdate === liveShowdate)
+            : tourRows.filter((row) => row.showdate === liveShowdate),
     );
 
     const liveSlugs = $derived(new SvelteSet(liveShowRows.map((r) => r.slug)));
@@ -271,7 +284,7 @@
      * highlight clears the next day.
      */
     const liveGapBySlug = $derived(
-        new SvelteMap(liveShowRows.map((row) => [row.slug, row.gap]))
+        new SvelteMap(liveShowRows.map((row) => [row.slug, row.gap])),
     );
 
     /**
@@ -282,7 +295,7 @@
      * until the grace period closes the next afternoon.
      */
     const latestSongSlug = $derived(
-        livePoll.inShowWindow ? (liveShowRows.at(-1)?.slug ?? null) : null
+        livePoll.inShowWindow ? (liveShowRows.at(-1)?.slug ?? null) : null,
     );
 
     /**
@@ -313,7 +326,7 @@
 
         // Newest show first, so the current (or most recent) show sits on top.
         return [...grouped.values()].sort((a, b) =>
-            b[0].showdate.localeCompare(a[0].showdate)
+            b[0].showdate.localeCompare(a[0].showdate),
         );
     });
 
@@ -337,23 +350,23 @@
                     slug: row.slug,
                     count: 1,
                     first: row.showdate,
-                    last: row.showdate
+                    last: row.showdate,
                 });
             }
         }
 
         return [...counts.values()].sort(
-            (a, b) => b.count - a.count || a.song.localeCompare(b.song)
+            (a, b) => b.count - a.count || a.song.localeCompare(b.song),
         );
     });
 
     const playedAlphabetical = $derived(
-        [...songCounts].sort((a, b) => a.song.localeCompare(b.song))
+        [...songCounts].sort((a, b) => a.song.localeCompare(b.song)),
     );
 
     /** Catalog entry by slug, so played rows can show all-time play count / gap. */
     const catalogBySlug = $derived(
-        new SvelteMap((allSongs ?? []).map((song) => [song.slug, song]))
+        new SvelteMap((allSongs ?? []).map((song) => [song.slug, song])),
     );
 
     /** Highest gap in the (optionally Phish-only) catalog, capping the slider. */
@@ -368,7 +381,7 @@
                 song.gap > highest
                     ? song.gap
                     : highest,
-            0
+            0,
         );
     });
 
@@ -384,7 +397,7 @@
                 song.times_played > highest
                     ? song.times_played
                     : highest,
-            0
+            0,
         );
     });
 
@@ -403,7 +416,7 @@
         const playedSlugs = new SvelteSet(
             countedRows
                 .filter((row) => row.showdate !== liveShowdate)
-                .map((row) => row.slug)
+                .map((row) => row.slug),
         );
 
         return allSongs
@@ -413,26 +426,26 @@
                     song.times_played >= minTimesPlayed &&
                     (minGap === 0 || song.gap >= minGap) &&
                     !playedSlugs.has(song.slug) &&
-                    !excludedSet.has(song.slug)
+                    !excludedSet.has(song.slug),
             )
             .sort((a, b) => a.song.localeCompare(b.song));
     });
 
     const dialogCatalogEntry = $derived(
-        allSongs?.find((song) => song.slug === dialogSlug) ?? null
+        allSongs?.find((song) => song.slug === dialogSlug) ?? null,
     );
 
     const dialogPerformances = $derived(
         [...tourRows]
             .filter((row) => row.slug === dialogSlug)
-            .sort((a, b) => a.showdate.localeCompare(b.showdate))
+            .sort((a, b) => a.showdate.localeCompare(b.showdate)),
     );
 
     const dialogSongName = $derived(
         dialogCatalogEntry?.song ??
-        dialogPerformances[0]?.song ??
-        dialogSlug ??
-        ''
+            dialogPerformances[0]?.song ??
+            dialogSlug ??
+            '',
     );
 
     /**
@@ -440,19 +453,19 @@
      * a song's page is addressed by its slug the same way the setlists do.
      */
     const dialogSongUrl = $derived(
-        dialogSlug === null ? null : `https://phish.net/song/${dialogSlug}`
+        dialogSlug === null ? null : `https://phish.net/song/${dialogSlug}`,
     );
 
     const prevDisabled = $derived(
         loadingYear ||
-        (tourIndex === 0 &&
-            (currentYear === null || years.indexOf(currentYear) === 0))
+            (tourIndex === 0 &&
+                (currentYear === null || years.indexOf(currentYear) === 0)),
     );
     const nextDisabled = $derived(
         loadingYear ||
-        (tourIndex === currentTours.length - 1 &&
-            (currentYear === null ||
-                years.indexOf(currentYear) === years.length - 1))
+            (tourIndex === currentTours.length - 1 &&
+                (currentYear === null ||
+                    years.indexOf(currentYear) === years.length - 1)),
     );
 
     function buildToursForYear(year: number): Tour[] {
@@ -475,7 +488,7 @@
                 tourid: row.tourid,
                 tourname: row.tourname,
                 tourwhen: row.tourwhen,
-                year
+                year,
             });
         }
 
@@ -496,7 +509,7 @@
                 yearData.set(year, response.data);
                 loadingYear = false;
                 onLoaded();
-            }
+            },
         });
     }
 
@@ -524,7 +537,7 @@
         year: number,
         which: 'first' | 'last',
         allowFallback = false,
-        preferredTourId?: number
+        preferredTourId?: number,
     ) {
         loadYear(year, () => {
             const tours = buildToursForYear(year);
@@ -539,7 +552,7 @@
                         years[fallbackPos],
                         which,
                         true,
-                        preferredTourId
+                        preferredTourId,
                     );
                 }
 
@@ -557,8 +570,8 @@
                 preferredIndex !== -1
                     ? preferredIndex
                     : which === 'first'
-                        ? 0
-                        : mostRecentTourIndex(tours, yearData.get(year) ?? []);
+                      ? 0
+                      : mostRecentTourIndex(tours, yearData.get(year) ?? []);
         });
     }
 
@@ -569,30 +582,75 @@
     function openSongDialog(slug: string) {
         dialogSlug = slug;
         dialogOpen = true;
+        dialogExcludeTourId = selectedTour?.tourid ?? null;
         recentPerformances = [];
-        recentPerformancesLoading = true;
+        recentPerformancesHasMore = false;
+        performancesSentinel = null;
+
+        fetchPerformancesPage(slug, 0);
+    }
+
+    /**
+     * One page of past performances, appended to what the dialog already holds.
+     *
+     * `offset` doubles as the guard against a stale response: a dialog that has
+     * since been closed, reopened, or moved to another song no longer has a list
+     * that page belongs on the end of.
+     */
+    function fetchPerformancesPage(slug: string, offset: number) {
+        if (offset === 0) {
+            recentPerformancesLoading = true;
+        } else {
+            recentPerformancesLoadingMore = true;
+        }
+
+        const settle = () => {
+            recentPerformancesLoading = false;
+            recentPerformancesLoadingMore = false;
+        };
 
         performancesHttp.get(
             songPerformances.url(slug, {
-                // The tour on screen is already listed in full above these, so
-                // asking for it back would waste slots on duplicates.
-                query: { exclude_tour: selectedTour?.tourid ?? null }
+                query: {
+                    // The tour on screen is already listed in full above these,
+                    // so asking for it back would waste slots on duplicates.
+                    exclude_tour: dialogExcludeTourId,
+                    offset,
+                },
             }),
             {
                 onSuccess: (response) => {
-                    // A dialog closed or reopened on another song mid-flight
-                    // must not have this response land under it.
-                    if (dialogSlug !== slug) {
+                    if (
+                        dialogSlug !== slug ||
+                        recentPerformances.length !== offset
+                    ) {
                         return;
                     }
 
-                    recentPerformances = response.data;
-                    recentPerformancesLoading = false;
+                    recentPerformances = [
+                        ...recentPerformances,
+                        ...response.data,
+                    ];
+                    recentPerformancesHasMore = response.meta.hasMore;
+                    settle();
                 },
-                onError: () => (recentPerformancesLoading = false),
-                onNetworkError: () => (recentPerformancesLoading = false)
-            }
+                onError: settle,
+                onNetworkError: settle,
+            },
         );
+    }
+
+    function loadMorePerformances() {
+        if (
+            dialogSlug === null ||
+            !recentPerformancesHasMore ||
+            recentPerformancesLoading ||
+            recentPerformancesLoadingMore
+        ) {
+            return;
+        }
+
+        fetchPerformancesPage(dialogSlug, recentPerformances.length);
     }
 
     function formatFieldValue(value: unknown): string {
@@ -661,12 +719,12 @@
                         true,
                         typeof savedPrefs?.tourid === 'number'
                             ? savedPrefs.tourid
-                            : undefined
+                            : undefined,
                     );
                 }
 
                 initialLoading = false;
-            }
+            },
         });
 
         allSongsLoading = true;
@@ -675,7 +733,7 @@
             onSuccess: (response) => {
                 allSongs = response.data;
                 allSongsLoading = false;
-            }
+            },
         });
 
         // Establish the version baseline and start the self-pacing poll loop.
@@ -692,6 +750,37 @@
         }
     });
 
+    // Pull the next page of past performances in as the foot of the list comes
+    // into view inside the dialog, a screen ahead of the user reaching it.
+    $effect(() => {
+        /*
+         * Read so a landed page re-runs this and re-observes: an observer
+         * reports crossings, not the standing state, so a page too short to push
+         * the sentinel back off screen would otherwise stall the list there.
+         */
+        const loaded = recentPerformances.length;
+
+        const sentinel = performancesSentinel;
+        const root = dialogScroller;
+
+        if (loaded === 0 || sentinel === null || root === null) {
+            return;
+        }
+
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (entries.some((entry) => entry.isIntersecting)) {
+                    loadMorePerformances();
+                }
+            },
+            { root, rootMargin: '200px' },
+        );
+
+        observer.observe(sentinel);
+
+        return () => observer.disconnect();
+    });
+
     $effect(() => {
         if (currentYear === null || !selectedTour) {
             return;
@@ -706,7 +795,7 @@
             viewMode,
             onlyPhishSongs,
             filtersOpen,
-            showFullSetlists
+            showFullSetlists,
         });
     });
 </script>
@@ -824,7 +913,8 @@
                 >
                     <!-- Played/Not Played -->
                     <div
-                        class="flex w-full rounded-md border p-0.5 md:inline-flex md:w-auto">
+                        class="flex w-full rounded-md border p-0.5 md:inline-flex md:w-auto"
+                    >
                         <button
                             type="button"
                             onclick={() => (viewMode = 'played')}
@@ -833,7 +923,8 @@
                                 viewMode === 'played'
                                     ? 'bg-primary text-primary-foreground'
                                     : 'text-muted-foreground hover:text-foreground',
-                            ]}>
+                            ]}
+                        >
                             Played
                         </button>
                         <button
@@ -844,14 +935,16 @@
                                 viewMode === 'not-played'
                                     ? 'bg-primary text-primary-foreground'
                                     : 'text-muted-foreground hover:text-foreground',
-                            ]}>
+                            ]}
+                        >
                             Not Played
                         </button>
                     </div>
 
                     <!-- Gap/Play Count -->
                     <div
-                        class="flex w-full rounded-md border p-0.5 md:inline-flex md:w-auto">
+                        class="flex w-full rounded-md border p-0.5 md:inline-flex md:w-auto"
+                    >
                         {#if viewMode === 'played'}
                             <button
                                 type="button"
@@ -860,7 +953,9 @@
                                     'flex-1 rounded px-4 py-2.5 text-sm font-medium transition-colors md:flex-none md:px-3 md:py-1 md:text-xs',
                                     statShown === 'tour-plays'
                                         ? 'bg-sky-700 text-sky-100'
-                                        : 'text-muted-foreground hover:text-foreground']}>
+                                        : 'text-muted-foreground hover:text-foreground',
+                                ]}
+                            >
                                 Tour Plays
                             </button>
                         {/if}
@@ -871,7 +966,9 @@
                                 'flex-1 rounded px-4 py-2.5 text-sm font-medium transition-colors md:flex-none md:px-3 md:py-1 md:text-xs',
                                 statShown === 'play-count'
                                     ? 'bg-fuchsia-700 text-fuchsia-200'
-                                    : 'text-muted-foreground hover:text-foreground']}>
+                                    : 'text-muted-foreground hover:text-foreground',
+                            ]}
+                        >
                             Total Plays
                         </button>
                         <button
@@ -881,7 +978,9 @@
                                 'flex-1 rounded px-4 py-2.5 text-sm font-medium transition-colors md:flex-none md:px-3 md:py-1 md:text-xs',
                                 statShown === 'gap'
                                     ? 'bg-green-700 text-green-100'
-                                    : 'text-muted-foreground hover:text-foreground']}>
+                                    : 'text-muted-foreground hover:text-foreground',
+                            ]}
+                        >
                             Gap
                         </button>
                         <button
@@ -891,7 +990,9 @@
                                 'flex-1 rounded px-4 py-2.5 text-sm font-medium transition-colors md:flex-none md:px-3 md:py-1 md:text-xs',
                                 statShown === null
                                     ? 'bg-primary text-primary-foreground'
-                                    : 'text-muted-foreground hover:text-foreground']}>
+                                    : 'text-muted-foreground hover:text-foreground',
+                            ]}
+                        >
                             Off
                         </button>
                     </div>
@@ -913,18 +1014,21 @@
                                     <span class="truncate">{row.song}</span>
                                     {#if statShown === 'tour-plays'}
                                         <span
-                                            class="shrink-0 text-center text-xs font-medium ring-1 ring-sky-500/30 text-sky-400/60 rounded-4xl w-[18%] py-0.5">
+                                            class="shrink-0 text-center text-xs font-medium ring-1 ring-sky-500/30 text-sky-400/60 rounded-4xl w-[18%] py-0.5"
+                                        >
                                             {row.count}
                                         </span>
                                     {:else if statShown === 'play-count'}
                                         <span
-                                            class="shrink-0 text-center text-xs font-medium ring-1 ring-fuchsia-500/30 text-fuchsia-500/60 rounded-4xl w-[18%] py-0.5">
+                                            class="shrink-0 text-center text-xs font-medium ring-1 ring-fuchsia-500/30 text-fuchsia-500/60 rounded-4xl w-[18%] py-0.5"
+                                        >
                                             {catalogBySlug.get(row.slug)
                                                 ?.times_played ?? '—'}
                                         </span>
                                     {:else if statShown === 'gap'}
                                         <span
-                                            class="shrink-0 text-center text-xs font-medium ring-1 ring-green-800/30 text-green-400/60 rounded-4xl w-[18%] py-0.5">
+                                            class="shrink-0 text-center text-xs font-medium ring-1 ring-green-800/30 text-green-400/60 rounded-4xl w-[18%] py-0.5"
+                                        >
                                             {liveGapBySlug.get(row.slug) ??
                                                 catalogBySlug.get(row.slug)
                                                     ?.gap ??
@@ -1025,11 +1129,11 @@
                     <div class="flex flex-col gap-2">
                         <p class="text-sm text-muted-foreground">
                             {tourShows.length} show{tourShows.length !== 1
-                            ? 's'
-                            : ''} &middot;
+                                ? 's'
+                                : ''} &middot;
                             {notPlayed.length} song{notPlayed.length !== 1
-                            ? 's'
-                            : ''} not played
+                                ? 's'
+                                : ''} not played
                         </p>
                         <div
                             class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
@@ -1044,15 +1148,16 @@
                                 >
                                     <span class="truncate">{song.song}</span>
                                     {#if statShown != null}
-
                                         {#if statShown === 'play-count'}
                                             <span
-                                                class="shrink-0 text-center text-xs font-medium ring-1 ring-fuchsia-500/30 text-fuchsia-500/60 rounded-4xl w-[18%] py-0.5">
+                                                class="shrink-0 text-center text-xs font-medium ring-1 ring-fuchsia-500/30 text-fuchsia-500/60 rounded-4xl w-[18%] py-0.5"
+                                            >
                                                 {song.times_played}
                                             </span>
                                         {:else if statShown === 'gap'}
                                             <span
-                                                class="shrink-0 text-center text-xs font-medium ring-1 ring-green-800/30 text-green-400/60 rounded-4xl w-[18%] py-0.5">
+                                                class="shrink-0 text-center text-xs font-medium ring-1 ring-green-800/30 text-green-400/60 rounded-4xl w-[18%] py-0.5"
+                                            >
                                                 {liveGapBySlug.get(song.slug) ??
                                                     song.gap}
                                             </span>
@@ -1091,9 +1196,9 @@
                                         ></span>
                                     </span>
                                     <span
-                                    >Next update: {formatCountdown(
-                                        livePoll.secondsRemaining,
-                                    )}</span
+                                        >Next update: {formatCountdown(
+                                            livePoll.secondsRemaining,
+                                        )}</span
                                     >
                                 </div>
                             {/if}
@@ -1166,6 +1271,7 @@
             onclick={() => (dialogOpen = false)}
         ></button>
         <div
+            bind:this={dialogScroller}
             class="relative z-10 max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-lg border bg-background p-6 shadow-lg"
             role="dialog"
             aria-modal="true"
@@ -1218,7 +1324,7 @@
                     Performances in {selectedTour?.tourname ?? 'this tour'} ({dialogPerformances.length})
                 </h3>
                 {#if dialogPerformances.length}
-                    {#each dialogPerformances as row, i (row.showid + '-' + i)}
+                    {#each dialogPerformances.reverse() as row, i (row.showid + '-' + i)}
                         {@render performanceBox(row, true)}
                     {/each}
                 {:else}
@@ -1238,6 +1344,14 @@
                     {#each recentPerformances as row (row.showid + '-' + row.position)}
                         {@render performanceBox(row, false)}
                     {/each}
+                    {#if recentPerformancesHasMore}
+                        <div
+                            bind:this={performancesSentinel}
+                            class="py-3 text-center text-sm text-muted-foreground"
+                        >
+                            {recentPerformancesLoadingMore ? 'Loading…' : ''}
+                        </div>
+                    {/if}
                 {:else}
                     <p class="text-sm text-muted-foreground">New song</p>
                 {/if}

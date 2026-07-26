@@ -8,12 +8,13 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
-class PhishNetExamplesController extends Controller
+class AppController extends Controller
 {
     /**
-     * How many past performances of a song the dialog lists.
+     * How many past performances of a song the dialog fetches per request, as
+     * it scrolls rather than up front.
      */
-    protected const RECENT_PERFORMANCES = 5;
+    protected const RECENT_PERFORMANCES_PER_PAGE = 10;
 
     public function recentSetlists(): Response
     {
@@ -64,21 +65,39 @@ class PhishNetExamplesController extends Controller
     }
 
     /**
-     * The handful of most recent performances of one song, which the song
-     * dialog shows underneath the performances from the tour on screen.
+     * One page of the most recent performances of a song, which the song dialog
+     * shows underneath the performances from the tour on screen and extends as
+     * the user scrolls.
      *
      * `exclude_tour` keeps that tour out of the results, so the dialog gets a
-     * full five of history rather than five slots partly spent repeating the
-     * list directly above it.
+     * full page of history rather than slots partly spent repeating the list
+     * directly above it. `offset` is how many rows the dialog already holds.
+     *
+     * One row beyond the page is fetched purely to answer `hasMore`, and
+     * dropped before the response goes out: it saves the client a request that
+     * comes back empty at the end of a song's history, and the server a second
+     * query to count what is left.
      */
     public function songPerformances(Request $request, PhishNetRepository $repository, string $slug): JsonResponse
     {
+        $offset = max(0, $request->integer('offset'));
+
+        $rows = $repository->recentPerformances(
+            $slug,
+            self::RECENT_PERFORMANCES_PER_PAGE + 1,
+            $request->integer('exclude_tour') ?: null,
+            $offset,
+        );
+
+        $hasMore = count($rows) > self::RECENT_PERFORMANCES_PER_PAGE;
+
         return response()->json([
-            'data' => $repository->recentPerformances(
-                $slug,
-                self::RECENT_PERFORMANCES,
-                $request->integer('exclude_tour') ?: null,
-            ),
+            'data' => array_slice($rows, 0, self::RECENT_PERFORMANCES_PER_PAGE),
+            'meta' => [
+                'offset' => $offset,
+                'perPage' => self::RECENT_PERFORMANCES_PER_PAGE,
+                'hasMore' => $hasMore,
+            ],
         ]);
     }
 

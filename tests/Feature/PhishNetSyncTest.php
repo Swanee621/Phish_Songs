@@ -236,7 +236,7 @@ test('the showdate feed lands the setlist while the year feed is still stale', f
         ->inShowWindow->toBeTrue();
 });
 
-test('an idle run refreshes the song catalog every time, changed year or not', function () {
+test('a first idle run checks todays feed and seeds the year and song catalogs', function () {
     Queue::fake();
 
     $this->travelTo('2026-07-21 12:00:00 America/New_York');
@@ -249,6 +249,132 @@ test('an idle run refreshes the song catalog every time, changed year or not', f
     (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
 
     expect(Song::query()->where('slug', 'dooley')->exists())->toBeTrue();
+
+    expect(Http::recorded(fn ($request) => str_contains($request->url(), 'setlists/showdate/2026-07-21'))->count())->toBe(1);
+});
+
+test('an idle run checks today and the songs hourly but leaves the year feed alone', function () {
+    Queue::fake();
+
+    $this->travelTo('2026-07-21 12:00:00 America/New_York');
+
+    fakeSetlistYear(2026, []);
+    fakeEndpoint('songs.json', [
+        ['songid' => 1, 'song' => 'Dooley', 'slug' => 'dooley', 'artist' => 'Phish', 'times_played' => 2],
+    ]);
+
+    // The first run seeds the year feed; the second, half an hour on, finds
+    // it fresh and re-checks only the cheap hourly feeds.
+    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+
+    $this->travelTo('2026-07-21 12:30:00 America/New_York');
+
+    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+
+    expect(Http::recorded(fn ($request) => str_contains($request->url(), 'setlists/showdate/2026-07-21'))->count())->toBe(2)
+        ->and(Http::recorded(fn ($request) => str_contains($request->url(), 'songs.json'))->count())->toBe(2)
+        ->and(Http::recorded(fn ($request) => str_contains($request->url(), 'showyear'))->count())->toBe(1);
+});
+
+test('the year feed refreshes once a day while idle', function () {
+    Queue::fake();
+
+    $this->travelTo('2026-07-19 12:00:00 America/New_York');
+
+    fakeSetlistYear(2026, []);
+
+    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+
+    // The next day, past the 24h catalog interval, it is re-pulled.
+    $this->travelTo('2026-07-20 13:00:00 America/New_York');
+
+    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+
+    expect(Http::recorded(fn ($request) => str_contains($request->url(), 'showyear'))->count())->toBe(2);
+});
+
+test('the day after a show its feed is still polled for corrections', function () {
+    Queue::fake();
+
+    // Noon on show day: an idle run seeds the year feed's daily clock.
+    $this->travelTo('2026-07-19 12:00:00 America/New_York');
+
+    fakeSetlistYear(2026, []);
+
+    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+
+    // That night the show lands through the live branch.
+    fakeScheduledShows('2026-07-19', [scheduledShowRow()]);
+    fakeEndpoint('setlists/showdate/2026-07-19.json', [
+        setlistRow(['showdate' => '2026-07-19', 'showyear' => 2026]),
+    ]);
+
+    $this->travelTo('2026-07-19 21:30:00 America/New_York');
+
+    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+
+    // The next day an editor appends the encore that the live feed missed.
+    fakeEndpoint('setlists/showdate/2026-07-19.json', [
+        setlistRow(['showdate' => '2026-07-19', 'showyear' => 2026]),
+        setlistRow([
+            'showdate' => '2026-07-19',
+            'showyear' => 2026,
+            'uniqueid' => 510999,
+            'position' => 2,
+            'set' => 'e',
+            'song' => 'Slave to the Traffic Light',
+            'slug' => 'slave-to-the-traffic-light',
+        ]),
+    ]);
+
+    $this->travelTo('2026-07-20 12:00:00 America/New_York');
+
+    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+
+    expect(SetlistEntry::query()->where('slug', 'slave-to-the-traffic-light')->exists())->toBeTrue();
+
+    // Two days on, the show counts as settled and its feed is left to the
+    // daily year refresh. Three fetches in total: show-day noon (as today's
+    // feed), the live poll that night, and the day-after correction poll.
+    $this->travelTo('2026-07-21 12:00:00 America/New_York');
+
+    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+
+    expect(Http::recorded(fn ($request) => str_contains($request->url(), 'setlists/showdate/2026-07-19'))->count())->toBe(3);
+});
+
+test('a show landing in todays feed outside the window is imported', function () {
+    Queue::fake();
+
+    $this->travelTo('2026-07-21 12:00:00 America/New_York');
+
+    fakeSetlistYear(2026, []);
+    fakeEndpoint('songs.json', [
+        ['songid' => 1, 'song' => 'Dooley', 'slug' => 'dooley', 'artist' => 'Phish', 'times_played' => 2],
+    ]);
+
+    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+
+    // An hour later a matinee's opener appears in today's feed — no scheduled
+    // show window is open, so only the idle branch can catch it.
+    fakeEndpoint('setlists/showdate/2026-07-21.json', [
+        setlistRow([
+            'showdate' => '2026-07-21',
+            'showyear' => 2026,
+            'song' => 'Chalk Dust Torture',
+            'slug' => 'chalk-dust-torture',
+        ]),
+    ]);
+
+    $this->travelTo('2026-07-21 13:00:00 America/New_York');
+
+    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+
+    expect(SetlistEntry::query()->where('slug', 'chalk-dust-torture')->exists())->toBeTrue();
+
+    // The year feed stays on its daily cadence — today's feed alone carried
+    // the show in.
+    expect(Http::recorded(fn ($request) => str_contains($request->url(), 'showyear'))->count())->toBe(1);
 });
 
 test('a show night polls only tonight: one schedule lookup, one setlist fetch', function () {

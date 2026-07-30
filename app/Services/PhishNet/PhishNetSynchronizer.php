@@ -5,16 +5,25 @@ namespace App\Services\PhishNet;
 use App\Models\PhishNetSyncState;
 use App\Models\SetlistEntry;
 use App\Models\Show;
+use App\Models\Song;
+use App\Models\Tour;
+use App\Models\Venue;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Fetches phish.net payloads, and imports them only when they differ from what
- * is already stored locally.
+ * The write path: fetches phish.net payloads, imports them into the local
+ * database when they differ from what is already stored, and owns all the
+ * "is a show happening right now?" logic that paces the sync loop.
  *
  * The upstream API exposes no modified timestamp, so each payload is hashed and
  * compared against the hash recorded by the previous sync. An unchanged hash
  * means no database writes and no cache invalidation.
+ *
+ * Every import is idempotent: rows are upserted by their upstream primary key,
+ * and rows that have disappeared from the payload are removed so upstream
+ * setlist corrections propagate instead of leaving orphans behind.
  */
 class PhishNetSynchronizer
 {
@@ -35,10 +44,14 @@ class PhishNetSynchronizer
 
     public function __construct(
         protected PhishNetClient $client,
-        protected PhishNetImporter $importer,
         protected PhishNetRepository $repository,
-        protected VenueTimezone $timezone,
     ) {}
+
+    /*
+    |--------------------------------------------------------------------------
+    | Syncing: fetch, diff, import
+    |--------------------------------------------------------------------------
+    */
 
     /**
      * Sync a single show year. Returns true when the payload had changed.
@@ -48,8 +61,77 @@ class PhishNetSynchronizer
         $rows = $this->client->fetchSetlistsForYear($year);
 
         return $this->whenChanged("setlists.year.{$year}", $rows, function () use ($year, $rows) {
-            $this->importer->importSetlistYear($year, $rows);
+            $this->importSetlistYear($year, $rows);
             $this->repository->forgetYear($year);
+        });
+    }
+
+    /**
+     * Sync today's per-showdate feed — the idle-hours once-over. Returns true
+     * when the payload had changed.
+     *
+     * One small request answers "did anything land today?" without re-pulling
+     * the whole year. A show that slipped past the show-window logic — a
+     * matinee, a festival day set, an overseas run outside the US-hours gate —
+     * still gets its setlist imported within the hour.
+     *
+     * "Today" is resolved in gate time, because the server clock runs UTC and
+     * would otherwise roll over to tomorrow's date mid-evening US time.
+     *
+     * Most days the feed is empty and nothing is recorded: an empty payload on
+     * a day with no show is the steady state, not a change worth tracking.
+     */
+    public function syncToday(): bool
+    {
+        $today = now()
+            ->setTimezone((string) config('phishnet.show_window.gate_timezone'))
+            ->toDateString();
+
+        return $this->syncShowdateFeed($today);
+    }
+
+    /**
+     * Keep the most recent show's feed synced through the day after it was
+     * played. Returns true when the payload had changed.
+     *
+     * Setlist corrections mostly land within a day of the show — a fixed song,
+     * a footnote, a missed encore. Polling the feed for one more day catches
+     * those within the hour instead of leaving them to the daily year refresh.
+     * Older shows are considered settled and left to that refresh, and today's
+     * own date is skipped because {@see syncToday} already covers it.
+     */
+    public function syncRecentShow(): bool
+    {
+        $yesterday = now()
+            ->setTimezone((string) config('phishnet.show_window.gate_timezone'))
+            ->subDay()
+            ->toDateString();
+
+        $latestShowdate = Show::query()->where('artistid', 1)->max('showdate');
+
+        if ($latestShowdate === null || (string) $latestShowdate !== $yesterday) {
+            return false;
+        }
+
+        return $this->syncShowdateFeed($yesterday);
+    }
+
+    /**
+     * Fetch one per-showdate feed and import it on change. Returns true when
+     * the payload had changed; an empty feed — a date with no show, the steady
+     * state — is skipped without recording anything.
+     */
+    protected function syncShowdateFeed(string $showdate): bool
+    {
+        $rows = $this->client->fetchSetlistForShowdate($showdate);
+
+        if ($rows === []) {
+            return false;
+        }
+
+        return $this->whenChanged("setlists.showdate.{$showdate}", $rows, function () use ($showdate, $rows) {
+            $this->importSetlistShowdate($rows);
+            $this->repository->forgetYear((int) substr($showdate, 0, 4));
         });
     }
 
@@ -71,7 +153,7 @@ class PhishNetSynchronizer
         $rows = $this->client->fetchSetlistForShowdate($showdate);
 
         $this->whenChanged("setlists.showdate.{$showdate}", $rows, function () use ($showdate, $rows) {
-            $this->importer->importSetlistShowdate($rows);
+            $this->importSetlistShowdate($rows);
             $this->repository->forgetYear((int) substr($showdate, 0, 4));
         });
 
@@ -86,7 +168,7 @@ class PhishNetSynchronizer
         $rows = $this->client->fetchSongs();
 
         return $this->whenChanged('songs', $rows, function () use ($rows) {
-            $this->importer->importSongs($rows);
+            $this->importSongs($rows);
             $this->repository->forgetSongs();
         });
     }
@@ -99,8 +181,26 @@ class PhishNetSynchronizer
         $rows = $this->client->fetchVenues();
 
         return $this->whenChanged('venues', $rows, function () use ($rows) {
-            $this->importer->importVenues($rows);
+            $this->importVenues($rows);
         });
+    }
+
+    /**
+     * Whether the current year's setlist feed is due its daily refresh.
+     *
+     * The year feed is the one heavyweight payload left on a slow cadence: it
+     * refreshes once per `phishnet.sync.catalog_interval`, and only exists to
+     * catch corrections to shows older than the day-after window the hourly
+     * idle checks already cover ({@see syncToday}, {@see syncRecentShow}).
+     */
+    public function yearFeedIsStale(): bool
+    {
+        $checkedAt = PhishNetSyncState::query()
+            ->where('key', 'setlists.year.'.$this->currentShowYear())
+            ->value('checked_at');
+
+        return $checkedAt === null || Carbon::parse($checkedAt)
+            ->lte(now()->subSeconds((int) config('phishnet.sync.catalog_interval')));
     }
 
     /**
@@ -119,6 +219,12 @@ class PhishNetSynchronizer
 
         return (int) (Show::query()->max('showyear') ?? $year);
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Show-window detection
+    |--------------------------------------------------------------------------
+    */
 
     /**
      * The showdate whose window the clock currently falls inside, or null when
@@ -143,7 +249,9 @@ class PhishNetSynchronizer
             : $gateNow->copy()->subDay()->toDateString();
 
         foreach ($this->phishShowsScheduledFor($showdate) as $show) {
-            if ($this->nowIsInsideWindowFor($showdate, $this->timezone->resolveForShow($show))) {
+            $timezone = $this->venueTimezone(isset($show['state']) ? (string) $show['state'] : null);
+
+            if ($this->nowIsInsideWindowFor($showdate, $timezone)) {
                 return $showdate;
             }
         }
@@ -291,6 +399,12 @@ class PhishNetSynchronizer
         ));
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | The live snapshot the browser polls
+    |--------------------------------------------------------------------------
+    */
+
     /**
      * Publish the snapshot the browser polls for live updates.
      *
@@ -437,7 +551,7 @@ class PhishNetSynchronizer
             return ['showdate' => null, 'until' => null];
         }
 
-        $until = Carbon::parse($show->showdate, $this->timezone->resolve($show->venue?->state))
+        $until = Carbon::parse($show->showdate, $this->venueTimezone($show->venue?->state))
             ->addDay()
             ->setTime((int) config('phishnet.show_window.highlight_end_hour'), 0);
 
@@ -477,6 +591,12 @@ class PhishNetSynchronizer
         ];
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | Change detection
+    |--------------------------------------------------------------------------
+    */
+
     /**
      * Run the import callback only when the payload hash differs from the last
      * recorded sync, then record the new hash either way.
@@ -510,5 +630,352 @@ class PhishNetSynchronizer
         ]);
 
         return true;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Importing: raw payloads into the database
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Import every setlist row belonging to a single show year.
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     */
+    protected function importSetlistYear(int $year, array $rows): void
+    {
+        DB::transaction(function () use ($year, $rows) {
+            $this->upsertVenues($rows);
+            $this->upsertTours($rows);
+            $this->upsertShows($rows);
+            $this->upsertSetlistEntries($rows);
+
+            $showIds = collect($rows)->pluck('showid')->unique()->all();
+
+            /*
+             * A show or entry that vanished from the payload was withdrawn or
+             * corrected upstream, so drop the local copy.
+             */
+            Show::query()
+                ->where('showyear', $year)
+                ->when($showIds !== [], fn ($query) => $query->whereNotIn('showid', $showIds))
+                ->delete();
+
+            SetlistEntry::query()
+                ->whereIn('showid', $showIds)
+                ->whereNotIn('uniqueid', collect($rows)->pluck('uniqueid')->all())
+                ->delete();
+        });
+    }
+
+    /**
+     * Import the setlist for a single show date.
+     *
+     * Used while a show is being played, when phish.net's per-showdate feed
+     * carries the night's new songs minutes before the bulk year feed does.
+     * Shares the year import's upserts but scopes its cleanup to the shows in the
+     * payload, so it never reaches outside the date it was handed.
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     */
+    protected function importSetlistShowdate(array $rows): void
+    {
+        DB::transaction(function () use ($rows) {
+            $this->upsertVenues($rows);
+            $this->upsertTours($rows);
+            $this->upsertShows($rows);
+            $this->upsertSetlistEntries($rows);
+
+            $showIds = collect($rows)->pluck('showid')->unique()->all();
+
+            /*
+             * Drop entries that vanished from the payload — an upstream setlist
+             * correction. An empty payload yields no show ids, so the scope is
+             * empty and nothing is deleted rather than the show being wiped.
+             */
+            SetlistEntry::query()
+                ->whereIn('showid', $showIds)
+                ->whereNotIn('uniqueid', collect($rows)->pluck('uniqueid')->all())
+                ->delete();
+        });
+    }
+
+    /**
+     * Import the full song catalog.
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     */
+    protected function importSongs(array $rows): void
+    {
+        $songs = collect($rows)
+            ->filter(fn (array $row) => isset($row['songid'], $row['slug']))
+            ->unique('slug')
+            ->map(fn (array $row) => [
+                'songid' => (int) $row['songid'],
+                'song' => (string) ($row['song'] ?? ''),
+                'slug' => (string) $row['slug'],
+                'artist' => $row['artist'] ?? null,
+                'times_played' => (int) ($row['times_played'] ?? 0),
+                'debut' => $row['debut'] ?? null,
+                'last_played' => $row['last_played'] ?? null,
+                'gap' => isset($row['gap']) ? (int) $row['gap'] : null,
+            ])
+            ->values();
+
+        if ($songs->isEmpty()) {
+            return;
+        }
+
+        DB::transaction(function () use ($songs) {
+            $songs->chunk(500)->each(fn ($chunk) => Song::upsert(
+                $chunk->all(),
+                uniqueBy: ['songid'],
+                update: ['song', 'slug', 'artist', 'times_played', 'debut', 'last_played', 'gap'],
+            ));
+
+            Song::query()->whereNotIn('songid', $songs->pluck('songid')->all())->delete();
+        });
+    }
+
+    /**
+     * Import the venue catalog.
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     */
+    protected function importVenues(array $rows): void
+    {
+        $venues = collect($rows)
+            ->filter(fn (array $row) => isset($row['venueid']))
+            ->unique('venueid')
+            ->map(fn (array $row) => [
+                'venueid' => (int) $row['venueid'],
+                'venuename' => (string) ($row['venuename'] ?? $row['venue'] ?? ''),
+                'city' => $row['city'] ?? null,
+                'state' => $row['state'] ?? null,
+                'country' => $row['country'] ?? null,
+            ])
+            ->values();
+
+        if ($venues->isEmpty()) {
+            return;
+        }
+
+        $venues->chunk(500)->each(fn ($chunk) => Venue::upsert(
+            $chunk->all(),
+            uniqueBy: ['venueid'],
+            update: ['venuename', 'city', 'state', 'country'],
+        ));
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     */
+    protected function upsertVenues(array $rows): void
+    {
+        $venues = collect($rows)
+            ->filter(fn (array $row) => ! empty($row['venueid']))
+            ->unique('venueid')
+            ->map(fn (array $row) => [
+                'venueid' => (int) $row['venueid'],
+                'venuename' => (string) ($row['venue'] ?? ''),
+                'city' => $row['city'] ?? null,
+                'state' => $row['state'] ?? null,
+                'country' => $row['country'] ?? null,
+            ])
+            ->values();
+
+        if ($venues->isNotEmpty()) {
+            $venues->chunk(500)->each(fn ($chunk) => Venue::upsert(
+                $chunk->all(),
+                uniqueBy: ['venueid'],
+                update: ['venuename', 'city', 'state', 'country'],
+            ));
+        }
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     */
+    protected function upsertTours(array $rows): void
+    {
+        $tours = collect($rows)
+            ->filter(fn (array $row) => ! empty($row['tourid']))
+            ->unique('tourid')
+            ->map(fn (array $row) => [
+                'tourid' => (int) $row['tourid'],
+                'tourname' => $row['tourname'] ?? null,
+                'tourwhen' => $row['tourwhen'] ?? null,
+            ])
+            ->values();
+
+        if ($tours->isNotEmpty()) {
+            $tours->chunk(500)->each(fn ($chunk) => Tour::upsert(
+                $chunk->all(),
+                uniqueBy: ['tourid'],
+                update: ['tourname', 'tourwhen'],
+            ));
+        }
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     */
+    protected function upsertShows(array $rows): void
+    {
+        $shows = collect($rows)
+            ->filter(fn (array $row) => ! empty($row['showid']))
+            ->unique('showid')
+            ->map(fn (array $row) => [
+                'showid' => (int) $row['showid'],
+                'showdate' => (string) $row['showdate'],
+                'showyear' => (int) ($row['showyear'] ?? substr((string) $row['showdate'], 0, 4)),
+                'venueid' => isset($row['venueid']) ? (int) $row['venueid'] : null,
+                'tourid' => isset($row['tourid']) ? (int) $row['tourid'] : null,
+                'artistid' => (int) ($row['artistid'] ?? 1),
+                'permalink' => $row['permalink'] ?? null,
+                'setlistnotes' => $row['setlistnotes'] ?? null,
+            ])
+            ->values();
+
+        if ($shows->isNotEmpty()) {
+            $shows->chunk(500)->each(fn ($chunk) => Show::upsert(
+                $chunk->all(),
+                uniqueBy: ['showid'],
+                update: ['showdate', 'showyear', 'venueid', 'tourid', 'artistid', 'permalink', 'setlistnotes'],
+            ));
+        }
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     */
+    protected function upsertSetlistEntries(array $rows): void
+    {
+        $entries = collect($rows)
+            ->filter(fn (array $row) => ! empty($row['uniqueid']))
+            ->unique('uniqueid')
+            ->map(fn (array $row) => [
+                'uniqueid' => (int) $row['uniqueid'],
+                'showid' => (int) $row['showid'],
+                'songid' => isset($row['songid']) ? (int) $row['songid'] : null,
+                'song' => (string) ($row['song'] ?? ''),
+                'slug' => (string) ($row['slug'] ?? ''),
+                'set' => (string) ($row['set'] ?? ''),
+                'position' => (int) ($row['position'] ?? 0),
+                'transition' => (int) ($row['transition'] ?? 0),
+                'trans_mark' => $row['trans_mark'] ?? null,
+                'footnote' => $row['footnote'] ?? null,
+                'isjam' => (bool) ($row['isjam'] ?? false),
+                'isreprise' => (bool) ($row['isreprise'] ?? false),
+                'isjamchart' => (bool) ($row['isjamchart'] ?? false),
+                'jamchart_description' => $row['jamchart_description'] ?? null,
+                'tracktime' => $row['tracktime'] ?? null,
+                'gap' => isset($row['gap']) ? (int) $row['gap'] : null,
+                'is_original' => (bool) ($row['is_original'] ?? false),
+                'artistid' => (int) ($row['artistid'] ?? 1),
+            ])
+            ->values();
+
+        if ($entries->isNotEmpty()) {
+            $entries->chunk(500)->each(fn ($chunk) => SetlistEntry::upsert(
+                $chunk->all(),
+                uniqueBy: ['uniqueid'],
+                update: [
+                    'showid', 'songid', 'song', 'slug', 'set', 'position', 'transition',
+                    'trans_mark', 'footnote', 'isjam', 'isreprise', 'isjamchart',
+                    'jamchart_description', 'tracktime', 'gap', 'is_original', 'artistid',
+                ],
+            ));
+        }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Venue timezones
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * The timezone anything unrecognised — a blank state, or the occasional
+     * overseas run — falls back to.
+     */
+    protected const string FALLBACK_TIMEZONE = 'America/New_York';
+
+    /**
+     * US states to IANA zone, across the four mainland zones.
+     *
+     * The phish.net venue payload carries no timezone — only `city`, `state`
+     * and `country` — so it is derived from the state. Precision matters less
+     * than it looks: callers use this to bound a six-hour show window around a
+     * three-hour show, so a zone that is an hour off still lands inside the
+     * window. Where a state spans two zones the busier venue wins (Tennessee
+     * resolves to Central for Nashville and Memphis; Kentucky to Eastern for
+     * Louisville).
+     *
+     * @var array<string, string>
+     */
+    protected const array VENUE_TIMEZONES = [
+        'CT' => 'America/New_York',
+        'DC' => 'America/New_York',
+        'DE' => 'America/New_York',
+        'FL' => 'America/New_York',
+        'GA' => 'America/New_York',
+        'IN' => 'America/New_York',
+        'KY' => 'America/New_York',
+        'MA' => 'America/New_York',
+        'MD' => 'America/New_York',
+        'ME' => 'America/New_York',
+        'MI' => 'America/New_York',
+        'NC' => 'America/New_York',
+        'NH' => 'America/New_York',
+        'NJ' => 'America/New_York',
+        'NY' => 'America/New_York',
+        'OH' => 'America/New_York',
+        'PA' => 'America/New_York',
+        'RI' => 'America/New_York',
+        'SC' => 'America/New_York',
+        'VA' => 'America/New_York',
+        'VT' => 'America/New_York',
+        'WV' => 'America/New_York',
+
+        'AL' => 'America/Chicago',
+        'AR' => 'America/Chicago',
+        'IA' => 'America/Chicago',
+        'IL' => 'America/Chicago',
+        'KS' => 'America/Chicago',
+        'LA' => 'America/Chicago',
+        'MN' => 'America/Chicago',
+        'MO' => 'America/Chicago',
+        'MS' => 'America/Chicago',
+        'NE' => 'America/Chicago',
+        'OK' => 'America/Chicago',
+        'TN' => 'America/Chicago',
+        'TX' => 'America/Chicago',
+        'WI' => 'America/Chicago',
+
+        /**
+         * Arizona skips DST, so in summer it runs on Pacific rather than
+         * Mountain time. Every Phoenix-area show has been indoors in summer.
+         */
+        'AZ' => 'America/Phoenix',
+        'CO' => 'America/Denver',
+        'ID' => 'America/Denver',
+        'MT' => 'America/Denver',
+        'NM' => 'America/Denver',
+        'UT' => 'America/Denver',
+
+        'CA' => 'America/Los_Angeles',
+        'NV' => 'America/Los_Angeles',
+        'OR' => 'America/Los_Angeles',
+        'WA' => 'America/Los_Angeles',
+    ];
+
+    /**
+     * Resolve a venue's timezone from its US state.
+     */
+    protected function venueTimezone(?string $state): string
+    {
+        return self::VENUE_TIMEZONES[strtoupper(trim((string) $state))] ?? self::FALLBACK_TIMEZONE;
     }
 }

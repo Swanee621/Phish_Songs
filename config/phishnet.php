@@ -16,12 +16,20 @@ return [
     'sync' => [
 
         /**
-         * Seconds between idle checks, while no show is underway: one request
-         * for the current year's setlists and one for the song catalog. The
-         * database and cache are only written when a returned payload differs
-         * from the last one imported.
+         * Seconds between idle checks, while no show is underway. Each check
+         * is a few small requests: today's setlist feed, the most recent
+         * show's feed through the day after it was played, and the song
+         * catalog. The database and cache are only written when a returned
+         * payload differs from the last one imported.
          */
         'interval' => (int) env('PHISHNET_SYNC_INTERVAL', 3600),
+
+        /**
+         * Seconds between refreshes of the current year's full setlist feed
+         * while idle — the heavyweight pull that catches corrections to shows
+         * older than the day-after window the hourly checks cover.
+         */
+        'catalog_interval' => (int) env('PHISHNET_SYNC_CATALOG_INTERVAL', 86400),
 
         /**
          * Seconds between checks while a show is underway, when the loop

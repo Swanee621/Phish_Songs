@@ -14,8 +14,12 @@ use Throwable;
 /**
  * One pass of the phish.net sync, in one of two modes:
  *
- * - Idle (no show tonight): refresh the current show year and the song catalog,
- *   once per `phishnet.sync.interval` (hourly by default). Historical years
+ * - Idle (no show tonight): once per `phishnet.sync.interval` (hourly by
+ *   default), check today's per-showdate feed (catches any show landing today),
+ *   the most recent show's feed through the day after it was played (catches
+ *   late setlist corrections), and the song catalog (play counts and gaps move
+ *   with every played show). Only the heavyweight year feed stays on a daily
+ *   cadence ({@see PhishNetSynchronizer::yearFeedIsStale}). Historical years
  *   never change, so they are imported once by `phish:backfill` and then read
  *   from the database forever.
  * - Show night: poll only tonight's per-showdate feed, once per
@@ -64,20 +68,29 @@ class SyncPhishNetTour implements ShouldBeUniqueUntilProcessing, ShouldQueue
         $showdate = $synchronizer->currentLiveShowdate();
 
         if ($showdate === null) {
-            /*
-             * Idle: the hourly once-over. The year feed catches upstream
-             * setlist corrections, and the song catalog the play counts and
-             * gaps that moved with them.
+            /**
+             * Idle: the hourly once-over. Today's feed catches any show
+             * landing today — including one outside the modeled evening
+             * window — the recent-show feed catches corrections through the
+             * day after a show, and the song catalog keeps play counts and
+             * gaps current. Only the heavyweight year feed waits for its
+             * daily refresh, to catch corrections to older shows.
              */
-            $synchronizer->syncYear($synchronizer->currentShowYear());
+            $synchronizer->syncToday();
+            $synchronizer->syncRecentShow();
             $synchronizer->syncSongs();
+
+            if ($synchronizer->yearFeedIsStale()) {
+                $synchronizer->syncYear($synchronizer->currentShowYear());
+            }
+
             $synchronizer->publishLiveState(null, false);
             $this->scheduleNextRun(false);
 
             return;
         }
 
-        /*
+        /**
          * Show night: tonight's feed is the only one that moves, so it is the
          * only one fetched — one payload carrying the songs and the show notes,
          * whose final-song marker also tells the loop when to back off. The
@@ -87,14 +100,14 @@ class SyncPhishNetTour implements ShouldBeUniqueUntilProcessing, ShouldQueue
          */
         $inShowWindow = $synchronizer->syncLiveShow($showdate);
 
-        /*
+        /**
          * Republish the snapshot the browser polls, so an open page picks up
          * both the new version hash and the current window flag on its next
          * poll without ever reaching the API itself.
          */
         $synchronizer->publishLiveState($showdate, $inShowWindow);
 
-        /*
+        /**
          * Only the successful path schedules the next run. A throwing run is
          * retried by the queue, and its final failure re-arms the loop from
          * failed(), so the loop can never fork into two chains.
@@ -108,7 +121,7 @@ class SyncPhishNetTour implements ShouldBeUniqueUntilProcessing, ShouldQueue
             'error' => $exception?->getMessage(),
         ]);
 
-        /*
+        /**
          * Keep the loop alive across a failed run, otherwise a single upstream
          * outage silently stops all future syncing.
          *

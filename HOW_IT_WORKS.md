@@ -14,12 +14,12 @@ a local database via a background sync loop and serves everything from there.
                        ┌───────────────────────────────────────────┐
                        │  Background sync (queue worker + loop job)  │
                        │                                             │
-  phish.net v5 API ──► │  PhishNetClient ──► PhishNetImporter ──►    │ ──► local DB
+  phish.net v5 API ──► │  PhishNetClient ──► PhishNetSynchronizer ─► │ ──► local DB
    (only touched here) │                     (hash-gated writes)     │
                        └───────────────────────────────────────────┘
                                                                           │
                                                                           ▼
-  Browser (Svelte)  ◄── JSON  ◄── PhishNetExamplesController ◄── PhishNetRepository
+  Browser (Svelte)  ◄── JSON  ◄── AppController ◄── PhishNetRepository
        │                              (web routes)              (cache in front of DB)
        │  useHttp() XHR calls
        └── SongChecker.svelte renders tours, played / not-played songs
@@ -57,30 +57,26 @@ guests, which are filtered out where it matters.
 
 ### The PhishNet service (`app/Services/PhishNet/`)
 
-Five small classes, each with one job:
+Three classes, each owning one side of the data flow:
 
 - **`PhishNetClient`** — the *only* class that talks to the API. A thin wrapper
   over `Http` with retries and a 30s timeout. The API key is injected once in
   `AppServiceProvider` from `services.phishnet.key`, so it never leaks into a
   web response. Nothing in a page-load request path calls this class.
 
-- **`PhishNetImporter`** — writes raw payloads into the DB. Every import is
-  **idempotent**: rows are upserted by their upstream primary key, and rows that
-  vanished from the payload are deleted (so upstream corrections propagate
-  instead of leaving orphans).
-
-- **`PhishNetSynchronizer`** — the orchestrator. Fetches a payload, and imports
-  it **only if it changed** (see below). Also owns all the "is a show happening
-  right now?" logic.
+- **`PhishNetSynchronizer`** — the whole write path. Fetches a payload, and
+  imports it **only if it changed** (see below). Every import is **idempotent**:
+  rows are upserted by their upstream primary key, and rows that vanished from
+  the payload are deleted (so upstream corrections propagate instead of leaving
+  orphans). Also owns all the "is a show happening right now?" logic, including
+  the US-state → IANA timezone map for venues — phish.net venue data has no
+  timezone, so it's derived from the state, loosely on purpose (see the
+  show-window logic below).
 
 - **`PhishNetRepository`** — reads data back out of the DB for the frontend. Puts
   a forever-cache in front of already-serialized payloads; the cache is only
   busted when a sync detects a real change. The DB is the source of truth; the
   cache is just the serialization layer.
-
-- **`VenueTimezone`** — maps a US state to an IANA timezone. phish.net venue data
-  has no timezone, so it's derived from the state. Precision is loose on purpose
-  (see the show-window logic below).
 
 ### Change detection (why the API isn't hammered)
 
@@ -112,20 +108,25 @@ makes it safe to poll frequently.
 
 ### The background sync loop
 
-`phish:watch` dispatches the `SyncPhishNetTour` job, which **re-dispatches itself**
-after each run — a self-perpetuating loop. A queue worker must be running for it
-to advance (`php artisan queue:work`).
+The scheduler runs `phish:tick` every minute, which dispatches a one-off
+`SyncPhishNetTour` job whenever the applicable interval has elapsed since the
+last sync. A queue worker must be running to process it (`php artisan
+queue:work`); `phish:watch` just dispatches an immediate one-off sync.
 
-Each run:
+Each run works in one of two modes:
 
-1. Checks whether a show is currently in its window (read *before* syncing, so a
-   show that just started tightens the interval on this pass).
-2. Syncs the current show year. If that year changed, it also re-syncs the song
-   catalog (play counts may have moved).
-3. Schedules the next run — the interval depends on whether a show is live:
-   - **No show:** `phishnet.sync.interval` (default **3600s / 1 hour**).
-   - **Show underway:** `phishnet.sync.active_interval` (default **360s / 6 min**;
-     kept above 300 because phish.net asks clients not to poll faster than ~5 min).
+- **Idle (no show tonight,** `phishnet.sync.interval`**, default 3600s / 1 hour):**
+  a few small requests — *today's* per-showdate setlist feed (catches any show
+  landing today, including one outside the modeled evening window), the most
+  recent show's feed through the day after it was played (catches late setlist
+  corrections), and the song catalog (play counts and gaps move with every
+  played show). Only the current year's full setlist feed stays slow, refreshing
+  once per `phishnet.sync.catalog_interval` (default 24h) to catch corrections
+  to older shows.
+- **Show night (**`phishnet.sync.active_interval`**, default 360s / 6 min; kept
+  above 300 because phish.net asks clients not to poll faster than ~5 min):**
+  polls only tonight's per-showdate feed, whose one payload carries the songs
+  and the show notes and doubles as the end-of-show check.
 
 Robustness details baked in:
 
@@ -173,7 +174,7 @@ shows, which is what makes live detection possible. Only Phish's own shows
 (`artistid === 1`) are considered.
 
 For each candidate show, the venue's timezone is resolved from its state
-(`VenueTimezone`) and the window is evaluated in that **local** time
+(the synchronizer's state → IANA map) and the window is evaluated in that **local** time
 (`nowIsInsideWindowFor()`):
 
 - **Opens 7pm** local (`start_hour = 19`) — an hour before a typical 8pm downbeat,
@@ -223,7 +224,7 @@ lets a page tell whether it is looking at the show being played right now.
 
 ### The endpoint
 
-`GET /data/live` (`PhishNetExamplesController@liveStatus`) returns the snapshot
+`GET /data/live` (`AppController@liveStatus`) returns the snapshot
 plus a `pollInterval` and reads **only from the cache**:
 
 ```json
@@ -279,7 +280,7 @@ keeps the countdown ticking so the page always shows when it will next check.
 ### Rendering
 
 The app is an Inertia SPA with Svelte 5 pages in `resources/js/pages/`. Routing is
-server-side: `web.php` maps `/` to `PhishNetExamplesController@songChecker`, which
+server-side: `web.php` maps `/` to `AppController@songChecker`, which
 does `Inertia::render('SongChecker', [...])`. Inertia mounts the matching Svelte
 component (`SongChecker.svelte`) and passes props.
 
@@ -310,12 +311,12 @@ result as `{ "data": [...] }`.
 ### Type-safe calls with Wayfinder
 
 The frontend doesn't hardcode URLs. Laravel **Wayfinder** generates TypeScript
-functions from the controller (`resources/js/actions/.../PhishNetExamplesController.ts`),
+functions from the controller (`resources/js/actions/.../AppController.ts`),
 imported in `SongChecker.svelte`:
 
 ```ts
 import { setlistsForYear, showYears, songs as songsRoute }
-    from '@/actions/App/Http/Controllers/PhishNetExamplesController';
+    from '@/actions/App/Http/Controllers/AppController';
 ```
 
 Calling e.g. `setlistsForYear.url(year)` yields the correct URL, type-checked
@@ -364,6 +365,7 @@ next visit so the app reopens where you left off.
 | ------------------------------------ | -------------------------------- | ------- | ---------------------------------------------- |
 | `services.phishnet.key`              | `PHISHNET_API_KEY`               | —       | API key (server-side only)                     |
 | `phishnet.sync.interval`             | `PHISHNET_SYNC_INTERVAL`         | 3600    | Seconds between checks when idle               |
+| `phishnet.sync.catalog_interval`     | `PHISHNET_SYNC_CATALOG_INTERVAL` | 86400   | Seconds between full current-year setlist refreshes when idle |
 | `phishnet.sync.active_interval`      | `PHISHNET_SYNC_ACTIVE_INTERVAL`  | 360     | Seconds between checks during a show (>300)     |
 | `phishnet.sync.first_year`           | `PHISHNET_FIRST_YEAR`            | 1983    | Earliest year for `phish:backfill`             |
 | `phishnet.show_window.gate_*`        | `PHISHNET_SHOW_GATE_*`           | 18 / 4  | Eastern-time outer gate hours                  |

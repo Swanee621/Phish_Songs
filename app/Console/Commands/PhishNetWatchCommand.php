@@ -2,22 +2,21 @@
 
 namespace App\Console\Commands;
 
-use App\Jobs\SyncPhishNetTour;
+use App\Services\PhishNet\PhishNetSynchronizer;
 use Illuminate\Console\Command;
 
 class PhishNetWatchCommand extends Command
 {
     protected $signature = 'phish:watch';
 
-    protected $description = 'Dispatch an immediate one-off tour sync (the scheduler runs the recurring loop)';
+    protected $description = 'Run an immediate one-off sync pass (the scheduler runs the recurring loop)';
 
-    public function handle(): int
+    public function handle(PhishNetSynchronizer $synchronizer): int
     {
-        SyncPhishNetTour::dispatch(continuous: false);
+        $synchronizer->syncPass();
 
-        $this->info('Tour sync dispatched.');
-        $this->line('The recurring loop is driven by the scheduler (phish:tick, every minute), so it re-arms itself; this just triggers a sync right now.');
-        $this->line('A queue worker must be running to process it: php artisan queue:work');
+        $this->info('Sync pass complete.');
+        $this->line('The recurring loop is driven by the scheduler (phish:tick, every minute), so keep `php artisan schedule:work` running; this just synced right now.');
 
         return self::SUCCESS;
     }

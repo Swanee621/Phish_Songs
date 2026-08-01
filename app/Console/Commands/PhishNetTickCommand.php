@@ -2,35 +2,35 @@
 
 namespace App\Console\Commands;
 
-use App\Jobs\SyncPhishNetTour;
 use App\Services\PhishNet\PhishNetRepository;
+use App\Services\PhishNet\PhishNetSynchronizer;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Scheduled heartbeat that keeps the tour sync running.
  *
- * Runs every minute from the scheduler and dispatches a one-off
- * {@see SyncPhishNetTour} whenever the configured interval since the last sync
- * has elapsed — the fast `active_interval` while a show is underway, the slow
- * idle `interval` otherwise.
+ * Runs every minute from the scheduler and performs a sync pass inline
+ * whenever the configured interval since the last one has elapsed — the fast
+ * `active_interval` while a show is underway, the slow idle `interval`
+ * otherwise.
  *
- * Driving the cadence from the scheduler rather than a job that re-dispatches
- * itself is what makes the loop self-healing: a stalled, failed, or lost run is
- * simply picked back up on the next tick, and a fresh deploy seeds itself the
- * first time this runs, so the loop can never be permanently stopped.
- *
- * The dispatched job is one-off ({@see SyncPhishNetTour::$continuous} false): it
- * does the sync and stops, leaving the next run entirely to this command. Its
- * uniqueness guard keeps a slow queue from piling several copies up at once.
+ * The pass runs in this process rather than being queued, so the scheduler is
+ * the loop's only dependency: no queue worker has to be alive for data to keep
+ * flowing. Combined with the every-minute cadence, that makes the loop
+ * self-healing — a failed, killed, or missed run is simply picked up by a
+ * later tick, and a fresh deploy seeds itself the first time this fires, so
+ * the loop can never be permanently stopped while the scheduler is up.
  */
 class PhishNetTickCommand extends Command
 {
     protected $signature = 'phish:tick';
 
-    protected $description = 'Dispatch a tour sync when the configured interval has elapsed (scheduled every minute)';
+    protected $description = 'Run a tour sync pass when the configured interval has elapsed (scheduled every minute)';
 
-    public function handle(PhishNetRepository $repository): int
+    public function handle(PhishNetRepository $repository, PhishNetSynchronizer $synchronizer): int
     {
         $live = $repository->liveState();
 
@@ -49,7 +49,31 @@ class PhishNetTickCommand extends Command
             return self::SUCCESS;
         }
 
-        SyncPhishNetTour::dispatch(continuous: false);
+        try {
+            $synchronizer->syncPass();
+        } catch (Throwable $exception) {
+            Log::error('phish.net sync pass failed.', [
+                'error' => $exception->getMessage(),
+            ]);
+
+            /**
+             * Keep the loop's clock moving across a failed pass. Restamping the
+             * last known state touches only the database and cache, never the
+             * API that just refused us, and is what lets the next attempt wait
+             * out the normal interval instead of hammering a failing upstream
+             * every minute. Trusting a possibly stale window flag is the
+             * documented bias: a false "live" costs one extra poll, a false
+             * "idle" a frozen live page.
+             */
+            try {
+                $synchronizer->publishLiveState($live['showdate'], $live['inShowWindow']);
+            } catch (Throwable) {
+                // Even the restamp failing must not take the tick down; the
+                // next one simply tries again.
+            }
+
+            return self::FAILURE;
+        }
 
         return self::SUCCESS;
     }

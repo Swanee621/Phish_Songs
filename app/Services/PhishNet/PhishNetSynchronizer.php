@@ -42,6 +42,22 @@ class PhishNetSynchronizer
      */
     protected const int SET_CLOSING_TRANSITION = 4;
 
+    /**
+     * How many active intervals old a published "show underway" snapshot may be
+     * and still count as evidence that the show is going. While the loop runs,
+     * even failing passes restamp the snapshot, so an upstream outage keeps it
+     * fresh; a snapshot older than this means the loop itself was down, and a
+     * show published as live days ago must not hijack the restart pass.
+     */
+    protected const int LIVE_STATE_FRESHNESS_INTERVALS = 4;
+
+    /**
+     * How far back {@see syncRecentShow} will keep polling a show whose stored
+     * setlist never received its final-song marker, so an upstream oddity that
+     * simply never marks one cannot keep an hourly poll alive forever.
+     */
+    protected const int UNFINISHED_SHOW_MAX_AGE_DAYS = 14;
+
     public function __construct(
         protected PhishNetClient $client,
         protected PhishNetRepository $repository,
@@ -52,6 +68,47 @@ class PhishNetSynchronizer
     | Syncing: fetch, diff, import
     |--------------------------------------------------------------------------
     */
+
+    /**
+     * One full pass of the sync, in one of two modes:
+     *
+     * - Idle (no show tonight): check today's per-showdate feed (catches any
+     *   show landing today), the most recent show's feed until it is settled
+     *   ({@see syncRecentShow}), and the song catalog (play counts and gaps
+     *   move with every played show). Only the heavyweight year feed stays on
+     *   a daily cadence ({@see yearFeedIsStale}); it doubles as the catch-all
+     *   that heals whatever an outage caused the cheaper feeds to miss.
+     * - Show night: poll only tonight's per-showdate feed. That single payload
+     *   carries the songs and the show notes both, and doubles as the
+     *   end-of-show check, so a live pass costs two API calls in total
+     *   (schedule lookup + setlist).
+     *
+     * Every pass ends by republishing the snapshot the browser polls, so an
+     * open page picks up both the new version hash and the current window flag
+     * on its next poll without ever reaching the API itself.
+     */
+    public function syncPass(): void
+    {
+        $showdate = $this->currentLiveShowdate();
+
+        if ($showdate === null) {
+            $this->syncToday();
+            $this->syncRecentShow();
+            $this->syncSongs();
+
+            if ($this->yearFeedIsStale()) {
+                $this->syncYear($this->currentShowYear());
+            }
+
+            $this->publishLiveState(null, false);
+
+            return;
+        }
+
+        $inShowWindow = $this->syncLiveShow($showdate);
+
+        $this->publishLiveState($showdate, $inShowWindow);
+    }
 
     /**
      * Sync a single show year. Returns true when the payload had changed.
@@ -91,29 +148,67 @@ class PhishNetSynchronizer
     }
 
     /**
-     * Keep the most recent show's feed synced through the day after it was
-     * played. Returns true when the payload had changed.
+     * Keep the most recent show's feed synced until the show is settled.
+     * Returns true when the payload had changed.
      *
-     * Setlist corrections mostly land within a day of the show — a fixed song,
-     * a footnote, a missed encore. Polling the feed for one more day catches
-     * those within the hour instead of leaving them to the daily year refresh.
-     * Older shows are considered settled and left to that refresh, and today's
-     * own date is skipped because {@see syncToday} already covers it.
+     * A show is settled once it is more than a day old *and* its stored
+     * setlist carries the final-song marker. The day-after leg catches the
+     * corrections that mostly land within a day of a show — a fixed song, a
+     * footnote, a missed encore. The completeness leg keeps polling a show
+     * whose closing songs never arrived at all — the state a sync outage
+     * mid-show leaves behind — so a restarted loop finishes the setlist within
+     * the hour instead of leaving it to the daily year refresh. Settled shows
+     * are left to that refresh, and today's own date is skipped because
+     * {@see syncToday} already covers it.
      */
     public function syncRecentShow(): bool
     {
-        $yesterday = now()
-            ->setTimezone((string) config('phishnet.show_window.gate_timezone'))
-            ->subDay()
-            ->toDateString();
+        $latestShowdate = (string) (Show::query()->where('artistid', 1)->max('showdate') ?? '');
 
-        $latestShowdate = Show::query()->where('artistid', 1)->max('showdate');
-
-        if ($latestShowdate === null || (string) $latestShowdate !== $yesterday) {
+        if ($latestShowdate === '') {
             return false;
         }
 
-        return $this->syncShowdateFeed($yesterday);
+        $gateNow = now()->setTimezone((string) config('phishnet.show_window.gate_timezone'));
+
+        if ($latestShowdate >= $gateNow->toDateString()) {
+            return false;
+        }
+
+        $isYesterday = $latestShowdate === $gateNow->copy()->subDay()->toDateString();
+
+        if (! $isYesterday && ! $this->showLooksUnfinished($latestShowdate)) {
+            return false;
+        }
+
+        return $this->syncShowdateFeed($latestShowdate);
+    }
+
+    /**
+     * Whether the stored setlist for a date is missing its final-song marker —
+     * the fingerprint of a sync that died mid-show. Bounded to the recent past
+     * ({@see UNFINISHED_SHOW_MAX_AGE_DAYS}); anything older is left to the
+     * daily year refresh.
+     */
+    protected function showLooksUnfinished(string $showdate): bool
+    {
+        $oldestWorthPolling = now()
+            ->setTimezone((string) config('phishnet.show_window.gate_timezone'))
+            ->subDays(self::UNFINISHED_SHOW_MAX_AGE_DAYS)
+            ->toDateString();
+
+        if ($showdate < $oldestWorthPolling) {
+            return false;
+        }
+
+        return ! SetlistEntry::query()
+            ->whereIn('showid', Show::query()
+                ->where('showdate', $showdate)
+                ->where('artistid', 1)
+                ->pluck('showid'))
+            ->where('artistid', 1)
+            ->where('transition', self::FINAL_SONG_TRANSITION)
+            ->exists();
     }
 
     /**
@@ -285,11 +380,26 @@ class PhishNetSynchronizer
 
         $published = $this->repository->liveState();
 
-        if ($published['inShowWindow'] && $published['showdate'] !== null) {
-            return $published['showdate'];
+        if (! $published['inShowWindow'] || $published['showdate'] === null) {
+            return null;
         }
 
-        return null;
+        /*
+         * Only a recently published snapshot counts as evidence. A running
+         * loop restamps it every pass — failing ones included — so an
+         * upstream blip keeps it fresh; one this old means the loop itself
+         * was down, and a show published as live on some earlier night must
+         * not hijack the restart pass that should be catching up instead.
+         */
+        $staleBefore = now()->subSeconds(
+            self::LIVE_STATE_FRESHNESS_INTERVALS * (int) config('phishnet.sync.active_interval'),
+        );
+
+        if ($published['updatedAt'] === null || Carbon::parse($published['updatedAt'])->lte($staleBefore)) {
+            return null;
+        }
+
+        return $published['showdate'];
     }
 
     /**

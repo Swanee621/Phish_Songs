@@ -1,16 +1,16 @@
 <?php
 
-use App\Jobs\SyncPhishNetTour;
 use App\Models\PhishNetSyncState;
 use App\Models\SetlistEntry;
 use App\Models\Show;
 use App\Models\Song;
 use App\Models\Tour;
 use App\Models\Venue;
+use App\Services\PhishNet\PhishNetClient;
 use App\Services\PhishNet\PhishNetRepository;
 use App\Services\PhishNet\PhishNetSynchronizer;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Queue;
 
 /*
  * Http::fake() merges successive stubs rather than replacing them, and the
@@ -187,7 +187,6 @@ test('after midnight the window still belongs to the previous days showdate', fu
 });
 
 test('the live snapshot keeps the showdate but clears the live flag when the show ends', function () {
-    Queue::fake();
     fakeSetlistYear(2026, [
         setlistRow(['showdate' => '2026-07-19', 'showyear' => 2026, 'transition' => 6]),
     ]);
@@ -198,7 +197,7 @@ test('the live snapshot keeps the showdate but clears the live flag when the sho
 
     $this->travelTo('2026-07-19 23:30:00 America/New_York');
 
-    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+    app(PhishNetSynchronizer::class)->syncPass();
 
     $state = app(PhishNetRepository::class)->liveState();
 
@@ -207,8 +206,6 @@ test('the live snapshot keeps the showdate but clears the live flag when the sho
 });
 
 test('the showdate feed lands the setlist while the year feed is still stale', function () {
-    Queue::fake();
-
     // The bulk year feed has not refreshed yet — it still returns nothing.
     fakeSetlistYear(2026, []);
     fakeScheduledShows('2026-07-19', [scheduledShowRow()]);
@@ -225,7 +222,7 @@ test('the showdate feed lands the setlist while the year feed is still stale', f
 
     $this->travelTo('2026-07-19 21:30:00 America/New_York');
 
-    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+    app(PhishNetSynchronizer::class)->syncPass();
 
     // Imported straight from the showdate feed despite the empty year feed...
     expect(SetlistEntry::query()->where('slug', 'chalk-dust-torture')->exists())->toBeTrue();
@@ -237,8 +234,6 @@ test('the showdate feed lands the setlist while the year feed is still stale', f
 });
 
 test('a first idle run checks todays feed and seeds the year and song catalogs', function () {
-    Queue::fake();
-
     $this->travelTo('2026-07-21 12:00:00 America/New_York');
 
     fakeSetlistYear(2026, []);
@@ -246,7 +241,7 @@ test('a first idle run checks todays feed and seeds the year and song catalogs',
         ['songid' => 1, 'song' => 'Dooley', 'slug' => 'dooley', 'artist' => 'Phish', 'times_played' => 2],
     ]);
 
-    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+    app(PhishNetSynchronizer::class)->syncPass();
 
     expect(Song::query()->where('slug', 'dooley')->exists())->toBeTrue();
 
@@ -254,8 +249,6 @@ test('a first idle run checks todays feed and seeds the year and song catalogs',
 });
 
 test('an idle run checks today and the songs hourly but leaves the year feed alone', function () {
-    Queue::fake();
-
     $this->travelTo('2026-07-21 12:00:00 America/New_York');
 
     fakeSetlistYear(2026, []);
@@ -265,11 +258,11 @@ test('an idle run checks today and the songs hourly but leaves the year feed alo
 
     // The first run seeds the year feed; the second, half an hour on, finds
     // it fresh and re-checks only the cheap hourly feeds.
-    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+    app(PhishNetSynchronizer::class)->syncPass();
 
     $this->travelTo('2026-07-21 12:30:00 America/New_York');
 
-    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+    app(PhishNetSynchronizer::class)->syncPass();
 
     expect(Http::recorded(fn ($request) => str_contains($request->url(), 'setlists/showdate/2026-07-21'))->count())->toBe(2)
         ->and(Http::recorded(fn ($request) => str_contains($request->url(), 'songs.json'))->count())->toBe(2)
@@ -277,31 +270,27 @@ test('an idle run checks today and the songs hourly but leaves the year feed alo
 });
 
 test('the year feed refreshes once a day while idle', function () {
-    Queue::fake();
-
     $this->travelTo('2026-07-19 12:00:00 America/New_York');
 
     fakeSetlistYear(2026, []);
 
-    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+    app(PhishNetSynchronizer::class)->syncPass();
 
     // The next day, past the 24h catalog interval, it is re-pulled.
     $this->travelTo('2026-07-20 13:00:00 America/New_York');
 
-    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+    app(PhishNetSynchronizer::class)->syncPass();
 
     expect(Http::recorded(fn ($request) => str_contains($request->url(), 'showyear'))->count())->toBe(2);
 });
 
 test('the day after a show its feed is still polled for corrections', function () {
-    Queue::fake();
-
     // Noon on show day: an idle run seeds the year feed's daily clock.
     $this->travelTo('2026-07-19 12:00:00 America/New_York');
 
     fakeSetlistYear(2026, []);
 
-    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+    app(PhishNetSynchronizer::class)->syncPass();
 
     // That night the show lands through the live branch.
     fakeScheduledShows('2026-07-19', [scheduledShowRow()]);
@@ -311,9 +300,10 @@ test('the day after a show its feed is still polled for corrections', function (
 
     $this->travelTo('2026-07-19 21:30:00 America/New_York');
 
-    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+    app(PhishNetSynchronizer::class)->syncPass();
 
-    // The next day an editor appends the encore that the live feed missed.
+    // The next day an editor appends the encore — final-song marker and all —
+    // that the live feed missed.
     fakeEndpoint('setlists/showdate/2026-07-19.json', [
         setlistRow(['showdate' => '2026-07-19', 'showyear' => 2026]),
         setlistRow([
@@ -324,28 +314,101 @@ test('the day after a show its feed is still polled for corrections', function (
             'set' => 'e',
             'song' => 'Slave to the Traffic Light',
             'slug' => 'slave-to-the-traffic-light',
+            'transition' => 6,
         ]),
     ]);
 
     $this->travelTo('2026-07-20 12:00:00 America/New_York');
 
-    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+    app(PhishNetSynchronizer::class)->syncPass();
 
     expect(SetlistEntry::query()->where('slug', 'slave-to-the-traffic-light')->exists())->toBeTrue();
 
-    // Two days on, the show counts as settled and its feed is left to the
-    // daily year refresh. Three fetches in total: show-day noon (as today's
-    // feed), the live poll that night, and the day-after correction poll.
+    // Two days on, the show counts as settled — older than a day, final song
+    // stored — and its feed is left to the daily year refresh. Three fetches
+    // in total: show-day noon (as today's feed), the live poll that night, and
+    // the day-after correction poll.
     $this->travelTo('2026-07-21 12:00:00 America/New_York');
 
-    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+    app(PhishNetSynchronizer::class)->syncPass();
+
+    expect(Http::recorded(fn ($request) => str_contains($request->url(), 'setlists/showdate/2026-07-19'))->count())->toBe(3);
+});
+
+test('a stale live snapshot does not hijack the pass after an outage', function () {
+    // Published mid-show, right before the process running the loop dies.
+    $this->travelTo('2026-07-19 21:30:00 America/New_York');
+    app(PhishNetRepository::class)->publishLiveState('abc123', true, 2026, '2026-07-19');
+
+    // Three days later the loop comes back during gate hours. The schedule
+    // shows nothing tonight, and the days-old "live" snapshot must not send
+    // the pass to the old show's feed as if that show were still going.
+    $this->travelTo('2026-07-22 20:00:00 America/New_York');
+
+    fakeSetlistYear(2026, []);
+
+    app(PhishNetSynchronizer::class)->syncPass();
+
+    Http::assertNotSent(fn ($request) => str_contains($request->url(), 'setlists/showdate/2026-07-19'));
+
+    // The pass ran as an idle catch-up instead and cleared the stale flag.
+    expect(Http::recorded(fn ($request) => str_contains($request->url(), 'setlists/showdate/2026-07-22'))->count())->toBe(1)
+        ->and(app(PhishNetRepository::class)->liveState()['inShowWindow'])->toBeFalse();
+});
+
+test('a half-imported show keeps its feed polled until its final song lands', function () {
+    // Noon on show day: an idle pass seeds the year feed's daily clock.
+    $this->travelTo('2026-07-19 12:00:00 America/New_York');
+
+    fakeSetlistYear(2026, []);
+
+    app(PhishNetSynchronizer::class)->syncPass();
+
+    // That night the live loop catches the opener, then the process running it
+    // dies mid-show: the stored setlist never gets its final-song marker.
+    fakeScheduledShows('2026-07-19', [scheduledShowRow()]);
+    fakeEndpoint('setlists/showdate/2026-07-19.json', [
+        setlistRow(['showdate' => '2026-07-19', 'showyear' => 2026]),
+    ]);
+
+    $this->travelTo('2026-07-19 21:30:00 America/New_York');
+
+    app(PhishNetSynchronizer::class)->syncPass();
+
+    // Three days later the loop comes back. The show is well past the
+    // day-after window, but its setlist is visibly unfinished, so the idle
+    // pass re-polls its feed instead of waiting on the daily year refresh.
+    fakeEndpoint('setlists/showdate/2026-07-19.json', [
+        setlistRow(['showdate' => '2026-07-19', 'showyear' => 2026]),
+        setlistRow([
+            'showdate' => '2026-07-19',
+            'showyear' => 2026,
+            'uniqueid' => 510999,
+            'position' => 2,
+            'set' => 'e',
+            'song' => 'Slave to the Traffic Light',
+            'slug' => 'slave-to-the-traffic-light',
+            'transition' => 6,
+        ]),
+    ]);
+
+    $this->travelTo('2026-07-22 12:00:00 America/New_York');
+
+    app(PhishNetSynchronizer::class)->syncPass();
+
+    expect(SetlistEntry::query()->where('slug', 'slave-to-the-traffic-light')->exists())->toBeTrue();
+
+    // With the final song stored the show is settled, so the next pass leaves
+    // its feed alone. Three fetches: show-day noon (as today's feed), the live
+    // poll that night, and the completeness catch-up.
+    $this->travelTo('2026-07-22 13:00:00 America/New_York');
+
+    app(PhishNetSynchronizer::class)->syncPass();
 
     expect(Http::recorded(fn ($request) => str_contains($request->url(), 'setlists/showdate/2026-07-19'))->count())->toBe(3);
 });
 
 test('a show landing in todays feed outside the window is imported', function () {
-    Queue::fake();
-
     $this->travelTo('2026-07-21 12:00:00 America/New_York');
 
     fakeSetlistYear(2026, []);
@@ -353,7 +416,7 @@ test('a show landing in todays feed outside the window is imported', function ()
         ['songid' => 1, 'song' => 'Dooley', 'slug' => 'dooley', 'artist' => 'Phish', 'times_played' => 2],
     ]);
 
-    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+    app(PhishNetSynchronizer::class)->syncPass();
 
     // An hour later a matinee's opener appears in today's feed — no scheduled
     // show window is open, so only the idle branch can catch it.
@@ -368,7 +431,7 @@ test('a show landing in todays feed outside the window is imported', function ()
 
     $this->travelTo('2026-07-21 13:00:00 America/New_York');
 
-    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+    app(PhishNetSynchronizer::class)->syncPass();
 
     expect(SetlistEntry::query()->where('slug', 'chalk-dust-torture')->exists())->toBeTrue();
 
@@ -378,7 +441,6 @@ test('a show landing in todays feed outside the window is imported', function ()
 });
 
 test('a show night polls only tonight: one schedule lookup, one setlist fetch', function () {
-    Queue::fake();
     fakeScheduledShows('2026-07-19', [scheduledShowRow()]);
     fakeEndpoint('setlists/showdate/2026-07-19.json', [
         setlistRow(['showdate' => '2026-07-19', 'showyear' => 2026]),
@@ -386,7 +448,7 @@ test('a show night polls only tonight: one schedule lookup, one setlist fetch', 
 
     $this->travelTo('2026-07-19 21:30:00 America/New_York');
 
-    (new SyncPhishNetTour)->handle(app(PhishNetSynchronizer::class));
+    app(PhishNetSynchronizer::class)->syncPass();
 
     expect(Http::recorded(fn ($request) => str_contains($request->url(), 'setlists/showdate/2026-07-19'))->count())->toBe(1)
         ->and(Http::recorded(fn ($request) => str_contains($request->url(), 'shows/showdate/'))->count())->toBe(1);
@@ -395,31 +457,106 @@ test('a show night polls only tonight: one schedule lookup, one setlist fetch', 
     Http::assertNotSent(fn ($request) => str_contains($request->url(), 'songs.json'));
 });
 
-test('a failed run re-publishes the last state without touching the API', function () {
+test('a failing pass re-publishes the last state and waits out the interval', function () {
     config(['phishnet.sync.active_interval' => 360]);
-    Queue::fake();
+
+    // Every upstream call refuses us for the length of this test.
+    $this->mock(PhishNetClient::class, function ($mock) {
+        $mock->shouldReceive('fetchShowsForDate', 'fetchSetlistForShowdate', 'fetchSongs', 'fetchSetlistsForYear')
+            ->andThrow(new RuntimeException('upstream down'));
+    });
 
     // The state a mid-show run had published before the upstream began failing.
+    $this->travelTo('2026-07-19 20:00:00 America/New_York');
     app(PhishNetRepository::class)->publishLiveState('abc123', true, 2026, '2026-07-19');
 
-    $this->travelTo(now()->addMinutes(10));
+    $this->travelTo('2026-07-19 20:10:00 America/New_York');
 
-    (new SyncPhishNetTour)->failed(new RuntimeException('upstream down'));
+    $this->artisan('phish:tick')->assertFailed();
 
     $state = app(PhishNetRepository::class)->liveState();
 
-    // The clock restamps so phish:tick waits out the interval rather than
-    // re-dispatching every minute, and the window flag holds so pacing stays
-    // fast through a mid-show outage.
+    // The clock restamps so the next tick waits out the interval rather than
+    // hammering the failing upstream every minute, and the window flag holds
+    // so pacing stays fast through a mid-show outage.
     expect($state['inShowWindow'])->toBeTrue()
+        ->and($state['showdate'])->toBe('2026-07-19')
         ->and($state['updatedAt'])->toBe(now()->toIso8601String());
 
-    Http::assertNothingSent();
+    // Two minutes on — well inside the restamped interval — the tick holds
+    // off entirely, never reaching the client that would throw again.
+    $this->travelTo('2026-07-19 20:12:00 America/New_York');
 
-    Queue::assertPushed(
-        SyncPhishNetTour::class,
-        fn (SyncPhishNetTour $job) => $job->delay->timestamp === now()->addSeconds(360)->timestamp,
-    );
+    $this->artisan('phish:tick')->assertSuccessful();
+});
+
+test('an import refreshes the cached year, showdate and year-list payloads', function () {
+    fakeSetlistYear(2025, [setlistRow()]);
+
+    $synchronizer = app(PhishNetSynchronizer::class);
+    $repository = app(PhishNetRepository::class);
+
+    $synchronizer->syncYear(2025);
+
+    // Warm every read-through cache.
+    expect($repository->setlistsForYear(2025))->toHaveCount(1)
+        ->and($repository->setlistForShowdate('2025-07-25'))->toHaveCount(1)
+        ->and($repository->showYears())->toHaveCount(1);
+
+    // An encore lands upstream.
+    fakeSetlistYear(2025, [
+        setlistRow(),
+        setlistRow([
+            'uniqueid' => 510999,
+            'position' => 2,
+            'set' => 'e',
+            'song' => 'Slave to the Traffic Light',
+            'slug' => 'slave-to-the-traffic-light',
+        ]),
+    ]);
+
+    $synchronizer->syncYear(2025);
+
+    expect($repository->setlistsForYear(2025))->toHaveCount(2)
+        ->and($repository->setlistForShowdate('2025-07-25'))->toHaveCount(2);
+});
+
+test('a stale payload written back after an import is not served', function () {
+    fakeSetlistYear(2025, [setlistRow()]);
+
+    $synchronizer = app(PhishNetSynchronizer::class);
+    $repository = app(PhishNetRepository::class);
+
+    $synchronizer->syncYear(2025);
+
+    // What a request that queried just before the next import would hold, and
+    // the version its cache key would carry.
+    $staleRows = $repository->setlistForShowdate('2025-07-25');
+    $staleVersion = Cache::get('phishnet.version.year.2025');
+
+    fakeSetlistYear(2025, [
+        setlistRow(),
+        setlistRow([
+            'uniqueid' => 510999,
+            'position' => 2,
+            'set' => 'e',
+            'song' => 'Slave to the Traffic Light',
+            'slug' => 'slave-to-the-traffic-light',
+        ]),
+    ]);
+
+    $synchronizer->syncYear(2025);
+
+    /*
+     * The slow request now writes its pre-import payload back — the
+     * interleaving that, under forget-based invalidation, re-cached a
+     * half-finished setlist into the freshly cleared key and pinned it there.
+     * Under versioned keys it lands under the old version, which nothing
+     * reads again.
+     */
+    Cache::forever("phishnet.setlists.showdate.2025-07-25.{$staleVersion}", $staleRows);
+
+    expect($repository->setlistForShowdate('2025-07-25'))->toHaveCount(2);
 });
 
 test('the song performances endpoint caps a page and says more is waiting', function () {
@@ -480,8 +617,6 @@ test('the song performances endpoint can leave out the tour the dialog already l
 
 test('the tick command holds off while the last sync is still within the interval', function () {
     config(['phishnet.sync.interval' => 3600]);
-    Queue::fake();
-
     $this->travelTo('2026-07-19 12:00:00');
     app(PhishNetRepository::class)->publishLiveState(null, false, 2026);
 
@@ -489,7 +624,7 @@ test('the tick command holds off while the last sync is still within the interva
     $this->travelTo('2026-07-19 12:30:00');
     $this->artisan('phish:tick')->assertSuccessful();
 
-    Queue::assertNothingPushed();
+    Http::assertNothingSent();
 });
 
 test('the tick command uses the shorter active interval while a show is underway', function () {
@@ -497,16 +632,17 @@ test('the tick command uses the shorter active interval while a show is underway
         'phishnet.sync.interval' => 3600,
         'phishnet.sync.active_interval' => 360,
     ]);
-    Queue::fake();
+    fakeSetlistYear(2026, []);
 
     $this->travelTo('2026-07-19 20:00:00');
     app(PhishNetRepository::class)->publishLiveState(null, true, 2026);
 
-    // Ten minutes on: past the 360s active interval, far short of the 3600s idle one.
+    // Ten minutes on: past the 360s active interval, far short of the 3600s
+    // idle one, so this tick runs a pass inline — no queue in between.
     $this->travelTo('2026-07-19 20:10:00');
     $this->artisan('phish:tick')->assertSuccessful();
 
-    Queue::assertPushed(SyncPhishNetTour::class);
+    Http::assertSent(fn ($request) => str_contains($request->url(), 'setlists/showdate/2026-07-19'));
 });
 
 test('the live endpoint serves the active poll interval and showdate during a show window', function () {

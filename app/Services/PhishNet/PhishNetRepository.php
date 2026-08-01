@@ -7,17 +7,35 @@ use App\Models\Song;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 /**
  * Serves phish.net data out of the local database.
  *
  * The database is the source of truth; the cache in front of it holds the
- * already-serialized payloads forever and is only invalidated when a sync
- * detects that upstream data actually changed. Nothing here talks to the API.
+ * already-serialized payloads and is only invalidated when a sync detects that
+ * upstream data actually changed. Nothing here talks to the API.
+ *
+ * Invalidation is done by version, not deletion: every payload key carries the
+ * current version of its scope, and a sync that imports changes publishes a new
+ * version rather than forgetting keys. Deleting keys under a read-through cache
+ * opened a race — a request that queried the database just before an import
+ * commits would write its pre-import rows back into the freshly cleared key,
+ * pinning a half-finished setlist there until the next upstream change. Under
+ * versioned keys that late write lands under the old version, which nothing
+ * reads again, and the payload TTL sweeps it out.
  */
 class PhishNetRepository
 {
     public const CACHE_PREFIX = 'phishnet';
+
+    /**
+     * How long a cached payload lives before being rebuilt from the database.
+     * Freshness never depends on this — imports bump the version their keys
+     * carry — it only bounds how long payloads stranded under old versions
+     * linger in the store.
+     */
+    protected const CACHE_TTL_SECONDS = 86400;
 
     /**
      * Columns that reconstruct the flat, denormalized row shape the phish.net
@@ -63,7 +81,7 @@ class PhishNetRepository
      */
     public function setlistsForYear(int $year): array
     {
-        return $this->cached("setlists.year.{$year}", fn () => $this->setlistQuery()
+        return $this->cached("year.{$year}", "setlists.year.{$year}", fn () => $this->setlistQuery()
             ->where('shows.showyear', $year)
             ->orderBy('shows.showdate')
             ->orderBy('setlist_entries.position')
@@ -76,7 +94,7 @@ class PhishNetRepository
      */
     public function setlistForShowdate(string $showdate): array
     {
-        return $this->cached("setlists.showdate.{$showdate}", fn () => $this->setlistQuery()
+        return $this->cached('year.'.substr($showdate, 0, 4), "setlists.showdate.{$showdate}", fn () => $this->setlistQuery()
             ->where('shows.showdate', $showdate)
             ->orderBy('setlist_entries.position')
             ->get()
@@ -88,7 +106,7 @@ class PhishNetRepository
      */
     public function showYears(): array
     {
-        return $this->cached('shows.showyear', fn () => Show::query()
+        return $this->cached('shows', 'shows.showyear', fn () => Show::query()
             ->select('showyear')
             ->distinct()
             ->orderBy('showyear')
@@ -102,7 +120,7 @@ class PhishNetRepository
      */
     public function songs(): array
     {
-        return $this->cached('songs', fn () => Song::query()
+        return $this->cached('songs', 'songs', fn () => Song::query()
             ->orderBy('song')
             ->get(['songid', 'song', 'slug', 'artist', 'times_played', 'debut', 'last_played', 'gap'])
             ->map(fn (Song $song) => $song->toArray())
@@ -114,8 +132,8 @@ class PhishNetRepository
      *
      * Deliberately uncached, unlike the payloads above: it has to be able to
      * include a show that landed minutes ago, and there is no import hook that
-     * could clear a per-slug key the way {@see forgetYear()} clears the year and
-     * showdate ones. The cost is bounded — `slug` is indexed, and even the
+     * could invalidate a per-slug key the way {@see forgetYear()} invalidates
+     * the year and showdate ones. The cost is bounded — `slug` is indexed, and even the
      * most-played song has only a few hundred rows behind it.
      *
      * @param  int|null  $excludeTourId  A tour to leave out, so the caller can
@@ -206,25 +224,19 @@ class PhishNetRepository
     }
 
     /**
-     * Drop every cached payload derived from the given show year, plus the
-     * catalogs whose contents shift whenever new shows are imported.
+     * Invalidate every cached payload derived from the given show year — the
+     * year payload and each of its showdates — plus the year list, whose
+     * contents shift whenever new shows are imported.
      */
     public function forgetYear(int $year): void
     {
-        Cache::forget($this->key("setlists.year.{$year}"));
-        Cache::forget($this->key('shows.showyear'));
-
-        Show::query()
-            ->where('showyear', $year)
-            ->pluck('showdate')
-            ->each(fn (string $showdate) => Cache::forget(
-                $this->key("setlists.showdate.{$showdate}"),
-            ));
+        $this->bumpVersion("year.{$year}");
+        $this->bumpVersion('shows');
     }
 
     public function forgetSongs(): void
     {
-        Cache::forget($this->key('songs'));
+        $this->bumpVersion('songs');
     }
 
     protected function setlistQuery(): Builder
@@ -242,12 +254,35 @@ class PhishNetRepository
     }
 
     /**
+     * The current version of a cache scope, stamped into every payload key the
+     * scope covers. Readers only ever read this — publishing a new one is the
+     * sync's invalidation.
+     */
+    protected function version(string $scope): string
+    {
+        return (string) Cache::get($this->key("version.{$scope}"), 'initial');
+    }
+
+    /**
+     * Publish a new version for a scope, stranding every payload cached under
+     * the old one. An overwrite is atomic on any store, so unlike a forget
+     * there is no cleared-key moment for a slow reader to write stale rows
+     * into.
+     */
+    protected function bumpVersion(string $scope): void
+    {
+        Cache::forever($this->key("version.{$scope}"), (string) Str::ulid());
+    }
+
+    /**
      * @param  \Closure(): array<int, mixed>  $callback
      * @return array<int, array<string, mixed>>
      */
-    protected function cached(string $key, \Closure $callback): array
+    protected function cached(string $scope, string $key, \Closure $callback): array
     {
-        return Cache::rememberForever($this->key($key), function () use ($callback) {
+        $versionedKey = $this->key("{$key}.".$this->version($scope));
+
+        return Cache::remember($versionedKey, self::CACHE_TTL_SECONDS, function () use ($callback) {
             return collect($callback())
                 ->map(fn ($row) => is_array($row) ? $row : (array) $row)
                 ->all();

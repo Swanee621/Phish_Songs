@@ -85,15 +85,20 @@
 
     const livePoll = createLivePoll({
         activeInterval: clientSyncActiveInterval,
-        // Only the show currently being played ever changes; historical dates
-        // are static, so leave them alone.
+        /*
+         * A moved version can carry a change to any date, not just tonight's —
+         * a late correction, or a catch-up import back-filling a show the sync
+         * missed — so refresh whatever is on screen rather than only the show
+         * being played. Both refetches are served from the server's cache, so
+         * an untouched date costs next to nothing.
+         */
         onStale: (status) => {
-            if (
-                rows !== null &&
-                loadedShowdate !== '' &&
-                loadedShowdate === status.showdate
-            ) {
+            if (rows !== null && loadedShowdate !== '') {
                 refreshActiveDate();
+            }
+
+            if (selectedYear !== null && Number(selectedYear) === status.year) {
+                refreshYearShows(selectedYear);
             }
         },
     });
@@ -121,7 +126,7 @@
 
                         return true;
                     })
-                    .sort((a, b) => Number(b) - Number(a));
+                    .sort((a, b) => Number(a) - Number(b));
                 yearsLoaded = true;
 
                 restorePrefs();
@@ -162,6 +167,26 @@
         });
     });
 
+    function groupYearShows(data: SetlistRow[]): SetlistRow[][] {
+        const grouped = new SvelteMap<number, SetlistRow[]>();
+
+        for (const row of data) {
+            if (row.artistid !== 1) {
+                continue;
+            }
+
+            const existing = grouped.get(row.showid);
+
+            if (existing) {
+                existing.push(row);
+            } else {
+                grouped.set(row.showid, [row]);
+            }
+        }
+
+        return [...grouped.values()];
+    }
+
     function loadYear(year: string) {
         selectedYear = year;
         yearLoading = true;
@@ -170,24 +195,18 @@
 
         yearShowsHttp.get(setlistsForYear.url(year), {
             onSuccess: (response) => {
-                const grouped = new SvelteMap<number, SetlistRow[]>();
-
-                for (const row of response.data) {
-                    if (row.artistid !== 1) {
-                        continue;
-                    }
-
-                    const existing = grouped.get(row.showid);
-
-                    if (existing) {
-                        existing.push(row);
-                    } else {
-                        grouped.set(row.showid, [row]);
-                    }
-                }
-
-                yearShows = [...grouped.values()];
+                yearShows = groupYearShows(response.data);
                 yearLoading = false;
+            },
+        });
+    }
+
+    // Re-pull the show list for the year on screen without blanking it, so a
+    // show that just landed slots into the badges rather than resetting the UI.
+    function refreshYearShows(year: string) {
+        yearShowsHttp.get(setlistsForYear.url(year), {
+            onSuccess: (response) => {
+                yearShows = groupYearShows(response.data);
             },
         });
     }

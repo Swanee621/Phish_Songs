@@ -23,6 +23,15 @@
     const OUTLINE_BUTTON_CLASSES =
         'inline-flex h-10 items-center justify-center gap-2 rounded-md border border-input bg-background px-4 text-sm font-medium whitespace-nowrap transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 md:h-8 md:px-3 md:text-xs';
 
+    /**
+     * One of the two stacked inputs forming the debut-date range slider. The
+     * shared track is drawn separately underneath, so each input's own track is
+     * transparent and only its thumb accepts the pointer — otherwise the input
+     * on top would swallow every click meant for the one below.
+     */
+    const DUAL_RANGE_INPUT_CLASSES =
+        'pointer-events-none absolute inset-0 h-6 w-full cursor-pointer appearance-none bg-transparent [&::-webkit-slider-runnable-track]:h-2 [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:-mt-2 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-moz-range-track]:h-2 [&::-moz-range-track]:bg-transparent [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:h-6 [&::-moz-range-thumb]:w-6 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-primary md:h-5 md:[&::-webkit-slider-thumb]:-mt-1.5 md:[&::-webkit-slider-thumb]:h-5 md:[&::-webkit-slider-thumb]:w-5 md:[&::-moz-range-thumb]:h-5 md:[&::-moz-range-thumb]:w-5';
+
     /** Played at some point during the show being treated as current. */
     const PLAYED_TONIGHT_CLASSES =
         'bg-green-500/10 text-green-700 dark:text-green-400';
@@ -89,6 +98,8 @@
         tourid: number;
         minTimesPlayed: number;
         minGap: number;
+        debutFrom: string | null;
+        debutTo: string | null;
         statShown: StatShown;
         viewMode: ViewMode;
         onlyPhishSongs: boolean;
@@ -128,11 +139,12 @@
         savedPrefs?.viewMode === 'played' ? 'played' : 'not-played',
     );
 
-    type StatShown = 'gap' | 'play-count' | 'tour-plays' | null;
+    type StatShown = 'gap' | 'play-count' | 'tour-plays' | 'debut-year' | null;
     const STAT_SHOWN_VALUES: StatShown[] = [
         'gap',
         'play-count',
         'tour-plays',
+        'debut-year',
         null,
     ];
     let statShown = $state<StatShown>(
@@ -184,6 +196,36 @@
             ? savedPrefs.onlyPhishSongs
             : true,
     );
+
+    const DAY_MS = 86_400_000;
+
+    /** ISO dates compare lexicographically, so days only matter for the slider. */
+    const dayFromIsoDate = (date: string): number =>
+        Math.round(Date.parse(date) / DAY_MS);
+
+    const isoDateFromDay = (day: number): string =>
+        new Date(day * DAY_MS).toISOString().slice(0, 10);
+
+    const savedDebutDay = (value: unknown): number | null => {
+        if (typeof value !== 'string' || value === '') {
+            return null;
+        }
+
+        const day = dayFromIsoDate(value);
+
+        return Number.isNaN(day) ? null : day;
+    };
+
+    /**
+     * Where the debut-range handles have been dragged to, as days since the
+     * epoch. `null` means the handle is resting at its end of the range — no
+     * filter — which lets it follow the bounds if they move (say, the Phish-only
+     * toggle flips) instead of pinning to a stale date.
+     */
+    let debutFromDay = $state<number | null>(
+        savedDebutDay(savedPrefs?.debutFrom),
+    );
+    let debutToDay = $state<number | null>(savedDebutDay(savedPrefs?.debutTo));
 
     const yearData = new SvelteMap<number, SetlistRow[]>();
 
@@ -360,10 +402,6 @@
         );
     });
 
-    const playedAlphabetical = $derived(
-        [...songCounts].sort((a, b) => a.song.localeCompare(b.song)),
-    );
-
     /** Catalog entry by slug, so played rows can show all-time play count / gap. */
     const catalogBySlug = $derived(
         new SvelteMap((allSongs ?? []).map((song) => [song.slug, song])),
@@ -401,6 +439,112 @@
         );
     });
 
+    /** Oldest and newest debut dates in the (optionally Phish-only) catalog. */
+    const debutBounds = $derived.by(() => {
+        if (!allSongs) {
+            return null;
+        }
+
+        let min = Infinity;
+        let max = -Infinity;
+
+        for (const song of allSongs) {
+            if ((onlyPhishSongs && song.artist !== 'Phish') || !song.debut) {
+                continue;
+            }
+
+            const day = dayFromIsoDate(song.debut);
+
+            if (day < min) {
+                min = day;
+            }
+
+            if (day > max) {
+                max = day;
+            }
+        }
+
+        return min === Infinity ? null : { min, max };
+    });
+
+    /** Handle positions clamped to the current bounds, lower before upper. */
+    const debutFromValue = $derived(
+        debutBounds === null
+            ? 0
+            : Math.min(
+                  Math.max(debutFromDay ?? debutBounds.min, debutBounds.min),
+                  debutBounds.max,
+              ),
+    );
+    const debutToValue = $derived(
+        debutBounds === null
+            ? 0
+            : Math.max(
+                  Math.min(debutToDay ?? debutBounds.max, debutBounds.max),
+                  debutFromValue,
+              ),
+    );
+
+    const debutFromPercent = $derived(
+        debutBounds === null || debutBounds.max === debutBounds.min
+            ? 0
+            : ((debutFromValue - debutBounds.min) /
+                  (debutBounds.max - debutBounds.min)) *
+                  100,
+    );
+    const debutToPercent = $derived(
+        debutBounds === null || debutBounds.max === debutBounds.min
+            ? 100
+            : ((debutToValue - debutBounds.min) /
+                  (debutBounds.max - debutBounds.min)) *
+                  100,
+    );
+
+    /**
+     * When both handles sit together, only the input on top can be grabbed.
+     * Raising the lower handle whenever it is past the midpoint means the
+     * grabbable one is always the handle that still has somewhere to go.
+     */
+    const debutFromOnTop = $derived(
+        debutBounds !== null &&
+            debutFromValue > (debutBounds.min + debutBounds.max) / 2,
+    );
+
+    const debutFromDate = $derived(
+        debutBounds === null || debutFromDay === null
+            ? null
+            : isoDateFromDay(debutFromValue),
+    );
+    const debutToDate = $derived(
+        debutBounds === null || debutToDay === null
+            ? null
+            : isoDateFromDay(debutToValue),
+    );
+
+    /**
+     * The played list honours the play-count and debut-range sliders too, via
+     * each song's catalog entry. A song the catalog has not loaded (or does not
+     * know) is let through rather than hidden on missing data.
+     */
+    const playedAlphabetical = $derived(
+        songCounts
+            .filter((row) => {
+                const catalogEntry = catalogBySlug.get(row.slug);
+
+                if (!catalogEntry) {
+                    return true;
+                }
+
+                return (
+                    catalogEntry.times_played >= minTimesPlayed &&
+                    (debutFromDate === null ||
+                        catalogEntry.debut >= debutFromDate) &&
+                    (debutToDate === null || catalogEntry.debut <= debutToDate)
+                );
+            })
+            .sort((a, b) => a.song.localeCompare(b.song)),
+    );
+
     const notPlayed = $derived.by(() => {
         if (!allSongs) {
             return [];
@@ -425,6 +569,8 @@
                     (!onlyPhishSongs || song.artist === 'Phish') &&
                     song.times_played >= minTimesPlayed &&
                     (minGap === 0 || song.gap >= minGap) &&
+                    (debutFromDate === null || song.debut >= debutFromDate) &&
+                    (debutToDate === null || song.debut <= debutToDate) &&
                     !playedSlugs.has(song.slug) &&
                     !excludedSet.has(song.slug),
             )
@@ -577,6 +723,37 @@
 
     function selectTourIndex(index: number) {
         tourIndex = index;
+    }
+
+    /**
+     * The handles are clamped so they cannot cross, and a handle pushed back to
+     * its own end of the range dissolves into "no filter". The DOM value is
+     * written back because Svelte only re-renders `value` when the clamped
+     * result changes — a thumb dragged past the other handle would otherwise
+     * leave the DOM ahead of the state.
+     */
+    function onDebutFromInput(event: Event) {
+        if (debutBounds === null) {
+            return;
+        }
+
+        const input = event.currentTarget as HTMLInputElement;
+        const clamped = Math.min(Number(input.value), debutToValue);
+
+        debutFromDay = clamped <= debutBounds.min ? null : clamped;
+        input.value = String(clamped);
+    }
+
+    function onDebutToInput(event: Event) {
+        if (debutBounds === null) {
+            return;
+        }
+
+        const input = event.currentTarget as HTMLInputElement;
+        const clamped = Math.max(Number(input.value), debutFromValue);
+
+        debutToDay = clamped >= debutBounds.max ? null : clamped;
+        input.value = String(clamped);
     }
 
     function openSongDialog(slug: string) {
@@ -791,6 +968,8 @@
             tourid: selectedTour.tourid,
             minTimesPlayed,
             minGap,
+            debutFrom: debutFromDate,
+            debutTo: debutToDate,
             statShown,
             viewMode,
             onlyPhishSongs,
@@ -985,6 +1164,18 @@
                         </button>
                         <button
                             type="button"
+                            onclick={() => (statShown = 'debut-year')}
+                            class={[
+                                'flex-1 rounded px-4 py-2.5 text-sm font-medium transition-colors md:flex-none md:px-3 md:py-1 md:text-xs',
+                                statShown === 'debut-year'
+                                    ? 'bg-slate-700 text-slate-100'
+                                    : 'text-muted-foreground hover:text-foreground',
+                            ]}
+                        >
+                            Debut Year
+                        </button>
+                        <button
+                            type="button"
                             onclick={() => (statShown = null)}
                             class={[
                                 'flex-1 rounded px-4 py-2.5 text-sm font-medium transition-colors md:flex-none md:px-3 md:py-1 md:text-xs',
@@ -998,7 +1189,91 @@
                     </div>
                 </div>
 
+                {#snippet playCountSlider()}
+                    <div class="flex items-center justify-between gap-3">
+                        <label
+                            for="min-times-played"
+                            class="shrink-0 text-sm text-muted-foreground md:text-xs"
+                        >
+                            All-time Play Count
+                        </label>
+                        <span
+                            class="shrink-0 text-sm font-medium tabular-nums text-muted-foreground md:text-xs"
+                        >
+                            {minTimesPlayed}+ times
+                        </span>
+                    </div>
+
+                    <input
+                        id="min-times-played"
+                        type="range"
+                        min="0"
+                        max={maxTimesPlayed}
+                        step="5"
+                        bind:value={minTimesPlayed}
+                        class="h-6 w-full cursor-pointer appearance-none bg-transparent [&::-webkit-slider-runnable-track]:h-2 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-secondary [&::-webkit-slider-thumb]:-mt-2 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-moz-range-track]:h-2 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-secondary [&::-moz-range-thumb]:h-6 [&::-moz-range-thumb]:w-6 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-primary md:h-5 md:[&::-webkit-slider-thumb]:-mt-1.5 md:[&::-webkit-slider-thumb]:h-5 md:[&::-webkit-slider-thumb]:w-5 md:[&::-moz-range-thumb]:h-5 md:[&::-moz-range-thumb]:w-5"
+                    />
+                {/snippet}
+
+                {#snippet debutRangeSlider()}
+                    {#if debutBounds}
+                        <div class="flex items-center justify-between gap-3">
+                            <span
+                                class="shrink-0 text-sm text-muted-foreground md:text-xs"
+                            >
+                                Debut Date
+                            </span>
+                            <span
+                                class="shrink-0 text-sm font-medium tabular-nums text-muted-foreground md:text-xs"
+                            >
+                                {isoDateFromDay(debutFromValue)} &ndash; {isoDateFromDay(
+                                    debutToValue,
+                                )}
+                            </span>
+                        </div>
+
+                        <div class="relative h-6 md:h-5">
+                            <div
+                                class="absolute inset-x-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-secondary"
+                            ></div>
+                            <div
+                                class="absolute top-1/2 h-2 -translate-y-1/2 rounded-full bg-primary/30"
+                                style="left: {debutFromPercent}%; right: {100 -
+                                    debutToPercent}%"
+                            ></div>
+                            <input
+                                type="range"
+                                aria-label="Earliest debut date"
+                                min={debutBounds.min}
+                                max={debutBounds.max}
+                                step="1"
+                                value={debutFromValue}
+                                oninput={onDebutFromInput}
+                                class="{DUAL_RANGE_INPUT_CLASSES} {debutFromOnTop
+                                    ? 'z-30'
+                                    : 'z-10'}"
+                            />
+                            <input
+                                type="range"
+                                aria-label="Latest debut date"
+                                min={debutBounds.min}
+                                max={debutBounds.max}
+                                step="1"
+                                value={debutToValue}
+                                oninput={onDebutToInput}
+                                class="{DUAL_RANGE_INPUT_CLASSES} z-20"
+                            />
+                        </div>
+                    {/if}
+                {/snippet}
+
                 {#if viewMode === 'played'}
+                    {#if allSongs}
+                        <div class="mt-3 flex flex-col gap-3">
+                            {@render playCountSlider()}
+                            {@render debutRangeSlider()}
+                        </div>
+                    {/if}
                     {#if playedAlphabetical.length}
                         <div
                             class="mt-3 pt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
@@ -1034,6 +1309,14 @@
                                                     ?.gap ??
                                                 '—'}
                                         </span>
+                                    {:else if statShown === 'debut-year'}
+                                        <span
+                                            class="shrink-0 text-center text-xs font-medium ring-1 ring-slate-500/30 rounded-4xl w-[18%] py-0.5"
+                                        >
+                                            {catalogBySlug
+                                                .get(row.slug)
+                                                ?.debut.slice(0, 4) || '—'}
+                                        </span>
                                     {/if}
                                 </button>
                             {/each}
@@ -1049,29 +1332,7 @@
                     </p>
                 {:else}
                     <div class="mt-3 flex flex-col gap-3">
-                        <div class="flex items-center justify-between gap-3">
-                            <label
-                                for="min-times-played"
-                                class="shrink-0 text-sm text-muted-foreground md:text-xs"
-                            >
-                                All-time Play Count
-                            </label>
-                            <span
-                                class="shrink-0 text-sm font-medium tabular-nums text-muted-foreground md:text-xs"
-                            >
-                                {minTimesPlayed}+ times
-                            </span>
-                        </div>
-
-                        <input
-                            id="min-times-played"
-                            type="range"
-                            min="0"
-                            max={maxTimesPlayed}
-                            step="5"
-                            bind:value={minTimesPlayed}
-                            class="h-6 w-full cursor-pointer appearance-none bg-transparent [&::-webkit-slider-runnable-track]:h-2 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-secondary [&::-webkit-slider-thumb]:-mt-2 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-moz-range-track]:h-2 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-secondary [&::-moz-range-thumb]:h-6 [&::-moz-range-thumb]:w-6 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-primary md:h-5 md:[&::-webkit-slider-thumb]:-mt-1.5 md:[&::-webkit-slider-thumb]:h-5 md:[&::-webkit-slider-thumb]:w-5 md:[&::-moz-range-thumb]:h-5 md:[&::-moz-range-thumb]:w-5"
-                        />
+                        {@render playCountSlider()}
 
                         <div class="flex items-center justify-between gap-3">
                             <label
@@ -1096,6 +1357,8 @@
                             bind:value={minGap}
                             class="h-6 w-full cursor-pointer appearance-none bg-transparent [&::-webkit-slider-runnable-track]:h-2 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-secondary [&::-webkit-slider-thumb]:-mt-2 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-moz-range-track]:h-2 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-secondary [&::-moz-range-thumb]:h-6 [&::-moz-range-thumb]:w-6 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-primary md:h-5 md:[&::-webkit-slider-thumb]:-mt-1.5 md:[&::-webkit-slider-thumb]:h-5 md:[&::-webkit-slider-thumb]:w-5 md:[&::-moz-range-thumb]:h-5 md:[&::-moz-range-thumb]:w-5"
                         />
+
+                        {@render debutRangeSlider()}
 
                         <div class="flex items-center gap-2 pb-6 pt-4">
                             <button
@@ -1142,7 +1405,7 @@
                                 <button
                                     type="button"
                                     onclick={() => openSongDialog(song.slug)}
-                                    class="flex items-baseline cursor-pointer ring-1 ring-slate-500/10 justify-between gap-2 rounded p-3 text-left text-base hover:bg-accent hover:text-primary {liveClasses(
+                                    class="flex items-baseline cursor-pointer ring-1 ring-slate-500/10 justify-between gap-2 rounded p-3 text-left text-base hover:bg-accent text-primary {liveClasses(
                                         song.slug,
                                     ) || 'text-muted-foreground'}"
                                 >
@@ -1160,6 +1423,12 @@
                                             >
                                                 {liveGapBySlug.get(song.slug) ??
                                                     song.gap}
+                                            </span>
+                                        {:else if statShown === 'debut-year'}
+                                            <span
+                                                class="shrink-0 text-center text-xs font-medium ring-1 ring-slate-500/30 rounded-4xl w-[18%] py-0.5"
+                                            >
+                                                {song.debut.slice(0, 4) || '—'}
                                             </span>
                                         {/if}
                                     {/if}

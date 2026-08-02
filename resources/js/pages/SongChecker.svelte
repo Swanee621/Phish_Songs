@@ -1472,14 +1472,12 @@
                                 </div>
                             {/if}
                             {#each tourShows as rows (rows[0].showid)}
-                                <div class="border-b p-5 border-gray-400">
-                                    <SetlistView
-                                        {rows}
-                                        awaitingNextSong={livePoll.inShowWindow &&
-                                            rows[0].showdate ===
-                                                livePoll.activeShowdate}
-                                    />
-                                </div>
+                                <SetlistView
+                                    {rows}
+                                    awaitingNextSong={livePoll.inShowWindow &&
+                                        rows[0].showdate ===
+                                            livePoll.activeShowdate}
+                                />
                             {/each}
                         </div>
                     {/if}

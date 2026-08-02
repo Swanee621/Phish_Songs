@@ -335,6 +335,33 @@ test('the day after a show its feed is still polled for corrections', function (
     expect(Http::recorded(fn ($request) => str_contains($request->url(), 'setlists/showdate/2026-07-19'))->count())->toBe(3);
 });
 
+test('another artists closing song does not end phishs show early', function () {
+    fakeScheduledShows('2026-07-19', [scheduledShowRow()]);
+
+    // A side project playing the same night has finished its set (transition
+    // 6) while Phish is two songs into theirs.
+    fakeEndpoint('setlists/showdate/2026-07-19.json', [
+        setlistRow(['showdate' => '2026-07-19', 'showyear' => 2026]),
+        setlistRow([
+            'showdate' => '2026-07-19',
+            'showyear' => 2026,
+            'showid' => 1739906999,
+            'uniqueid' => 510888,
+            'artistid' => 7,
+            'transition' => 6,
+            'song' => 'Money Love and Change',
+            'slug' => 'money-love-and-change',
+        ]),
+    ]);
+
+    $this->travelTo('2026-07-19 21:30:00 America/New_York');
+
+    app(PhishNetSynchronizer::class)->syncPass();
+
+    // Phish's show is still going, so pacing stays on the show-night interval.
+    expect(app(PhishNetRepository::class)->liveState()['inShowWindow'])->toBeTrue();
+});
+
 test('a stale live snapshot does not hijack the pass after an outage', function () {
     // Published mid-show, right before the process running the loop dies.
     $this->travelTo('2026-07-19 21:30:00 America/New_York');

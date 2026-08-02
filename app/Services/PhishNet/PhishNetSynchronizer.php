@@ -436,11 +436,20 @@ class PhishNetSynchronizer
      * tagged with {@see FINAL_SONG_TRANSITION}, so its presence in the setlist
      * means the night is over even though the time window is still open.
      *
+     * Only Phish's own rows count. The per-showdate feed also carries side
+     * projects and guest appearances playing that night, and a closing song in
+     * one of those would otherwise end Phish's show early — dropping the loop
+     * from show-night pacing to hourly with the setlist still half-imported.
+     *
      * @param  array<int, array<string, mixed>>  $rows
      */
     public function setlistHasEnded(array $rows): bool
     {
         foreach ($rows as $entry) {
+            if ((int) ($entry['artistid'] ?? 1) !== 1) {
+                continue;
+            }
+
             if ((int) ($entry['transition'] ?? 0) === self::FINAL_SONG_TRANSITION) {
                 return true;
             }

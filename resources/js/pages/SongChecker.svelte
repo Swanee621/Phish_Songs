@@ -1472,7 +1472,7 @@
                                 </div>
                             {/if}
                             {#each tourShows as rows (rows[0].showid)}
-                                <div class="border-b p-5 border-white">
+                                <div class="border-b p-2 border-gray-400">
                                     <SetlistView
                                         {rows}
                                         awaitingNextSong={livePoll.inShowWindow &&

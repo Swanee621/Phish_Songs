@@ -55,7 +55,7 @@
 </script>
 
 {#if first}
-    <div class="mb-8">
+    <div class="border-b p-5 border-gray-400">
         <h3 class="mb-2 font-serif text-lg font-medium">
             {first.showdate} &mdash;
             <a

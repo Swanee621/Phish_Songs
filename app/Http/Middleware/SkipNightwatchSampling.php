@@ -20,7 +20,10 @@ class SkipNightwatchSampling
 {
     public function handle(Request $request, Closure $next): Response
     {
-        if (in_array($request->ip(), $this->ignoredIps(), true)) {
+        if (
+            $request->is('data/*') ||
+            in_array($request->ip(), $this->ignoredIps(), true)
+        ) {
             Nightwatch::dontSample();
         }
 

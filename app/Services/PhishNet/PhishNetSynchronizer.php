@@ -322,14 +322,21 @@ class PhishNetSynchronizer
     */
 
     /**
-     * The showdate whose window the clock currently falls inside, or null when
-     * no scheduled show is underway.
+     * The showdate the loop should be watching, or null when nothing is on the
+     * schedule.
      *
      * The outer gate short-circuits most of the day without touching the API.
-     * Inside it, exactly one date can have a show in its window — a window
-     * opens at the show's local evening and runs into the small hours, so in
-     * the gate's evening leg that date is today, and after midnight it is
-     * yesterday. Only that one date is worth a schedule lookup.
+     * Inside it exactly one date can have a show underway — the gate opens in
+     * the evening and runs into the small hours, so in its evening leg that
+     * date is today and after midnight it is yesterday — which makes that one
+     * date the only one worth a schedule lookup.
+     *
+     * A show on the schedule for that date is the whole test: from there the
+     * loop runs at show-night pacing until the closing song lands or the gate
+     * closes. Narrowing it further by the venue's local clock only ever risked
+     * the one failure that actually loses data — songs landing upstream while
+     * the loop is still polling hourly — while being early costs nothing but a
+     * few requests against a feed with nothing new in it.
      */
     public function showdateInWindow(): ?string
     {
@@ -343,15 +350,7 @@ class PhishNetSynchronizer
             ? $gateNow->toDateString()
             : $gateNow->copy()->subDay()->toDateString();
 
-        foreach ($this->phishShowsScheduledFor($showdate) as $show) {
-            $timezone = $this->venueTimezone(isset($show['state']) ? (string) $show['state'] : null);
-
-            if ($this->nowIsInsideWindowFor($showdate, $timezone)) {
-                return $showdate;
-            }
-        }
-
-        return null;
+        return $this->phishShowsScheduledFor($showdate) === [] ? null : $showdate;
     }
 
     /**
@@ -489,33 +488,30 @@ class PhishNetSynchronizer
     }
 
     /**
-     * Whether now falls between the show's local start hour and its end hour
-     * the following morning.
-     */
-    protected function nowIsInsideWindowFor(string $showdate, string $timezone): bool
-    {
-        $start = Carbon::parse($showdate, $timezone)
-            ->setTime((int) config('phishnet.show_window.start_hour'), 0);
-
-        $end = Carbon::parse($showdate, $timezone)
-            ->addDay()
-            ->setTime((int) config('phishnet.show_window.end_hour'), 0);
-
-        return now()->betweenIncluded($start, $end);
-    }
-
-    /**
-     * Phish's own shows scheduled for a date, discarding the side projects and
-     * guest appearances the endpoint also returns.
+     * The shows scheduled for a date, preferring Phish's own.
+     *
+     * The endpoint also returns the side projects and guest appearances playing
+     * that night, so Phish's rows are picked out when there are any. But a
+     * payload carrying shows and none of them attributed to Phish still counts:
+     * an unattributed or mislabelled schedule row is indistinguishable from a
+     * quiet night once it is filtered away, and the two are not equally cheap
+     * to get wrong. Treating a side project's date as a show night costs a few
+     * extra requests against a feed with nothing in it; filtering away a real
+     * one leaves the loop on hourly pacing through the whole show, which is how
+     * a night's songs go missing.
      *
      * @return array<int, array<string, mixed>>
      */
     protected function phishShowsScheduledFor(string $showdate): array
     {
-        return array_values(array_filter(
-            $this->client->fetchShowsForDate($showdate),
+        $scheduled = $this->client->fetchShowsForDate($showdate);
+
+        $phishShows = array_values(array_filter(
+            $scheduled,
             fn (array $show): bool => (int) ($show['artistid'] ?? 0) === 1,
         ));
+
+        return $phishShows === [] ? $scheduled : $phishShows;
     }
 
     /*

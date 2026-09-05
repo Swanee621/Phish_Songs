@@ -120,12 +120,11 @@ return [
     | The API exposes no "show in progress" flag and no end-of-show marker, so a
     | live show is inferred from a scheduled date plus the wall clock.
     |
-    | Detection runs in two stages. An outer gate in Eastern time decides when
-    | it is even worth asking the API — nothing can be underway before 6pm
-    | Eastern, and a west coast show is over by 4am Eastern — which keeps the
-    | schedule lookup off the wire for most of the day. Inside that gate the
-    | show's own venue timezone is resolved from its state, and the window is
-    | evaluated in local time.
+    | An outer gate in Eastern time decides when it is even worth asking the
+    | API — nothing can be underway before 6pm Eastern, and a west coast show is
+    | over by 4am Eastern — which keeps the schedule lookup off the wire for
+    | most of the day. Inside that gate, a show on the schedule for the date is
+    | enough to put the loop on show-night pacing until its closing song lands.
     |
     */
 
@@ -142,14 +141,6 @@ return [
          */
         'gate_start_hour' => (int) env('PHISHNET_SHOW_GATE_START_HOUR', 18),
         'gate_end_hour' => (int) env('PHISHNET_SHOW_GATE_END_HOUR', 4),
-
-        /**
-         * The window around a show, in the venue's own local time. Opening an
-         * hour before a typical 8pm downbeat covers early starts, and 01:00
-         * covers a long second set plus encore.
-         */
-        'start_hour' => (int) env('PHISHNET_SHOW_START_HOUR', 19),
-        'end_hour' => (int) env('PHISHNET_SHOW_END_HOUR', 1),
 
         /**
          * The hour on the day *after* a show, in the venue's local time, when

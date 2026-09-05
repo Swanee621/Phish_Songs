@@ -178,6 +178,35 @@ test('the evening window maps to the same days showdate', function () {
     expect(app(PhishNetSynchronizer::class)->inShowWindow())->toBeTrue();
 });
 
+test('a scheduled show goes live from the gate rather than the venue clock', function () {
+    // A west coast show: 6:30pm Eastern is only 3:30pm at the venue, hours
+    // before the doors. The schedule says there is a show, so the loop watches
+    // it from the moment the gate opens.
+    fakeScheduledShows('2026-07-19', [scheduledShowRow(['state' => 'CA', 'city' => 'Berkeley'])]);
+
+    $this->travelTo('2026-07-19 18:30:00 America/New_York');
+
+    expect(app(PhishNetSynchronizer::class)->showdateInWindow())->toBe('2026-07-19');
+});
+
+test('a scheduled show with no artist attribution still counts as a show night', function () {
+    // An upstream row that carries no usable artistid: filtering it away would
+    // read as a quiet night and leave the loop polling hourly through the show.
+    fakeScheduledShows('2026-07-19', [scheduledShowRow(['artistid' => null])]);
+
+    $this->travelTo('2026-07-19 21:30:00 America/New_York');
+
+    expect(app(PhishNetSynchronizer::class)->showdateInWindow())->toBe('2026-07-19');
+});
+
+test('an empty schedule leaves the loop idle', function () {
+    fakeSetlistYear(2026, []);
+
+    $this->travelTo('2026-07-19 21:30:00 America/New_York');
+
+    expect(app(PhishNetSynchronizer::class)->showdateInWindow())->toBeNull();
+});
+
 test('after midnight the window still belongs to the previous days showdate', function () {
     fakeScheduledShows('2026-07-19', [scheduledShowRow()]);
 

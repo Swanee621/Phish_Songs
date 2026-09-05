@@ -146,8 +146,8 @@ This is the trickiest part, because the API gives us almost nothing to work with
 **no "show in progress" flag and no end-of-show marker.** A finished show keeps
 its setlist forever, so "has a setlist" alone would read as *live* indefinitely.
 
-So a live show is **inferred** from *a scheduled date* + *the wall clock*, in two
-stages (all config lives in `config/phishnet.php` under `show_window`).
+So a live show is **inferred** from *a scheduled date* + *the wall clock*
+(all config lives in `config/phishnet.php` under `show_window`).
 
 ### Stage 1 — the outer gate (cheap, no API call)
 
@@ -160,39 +160,33 @@ Eastern time (`gate_timezone`):
 Outside those hours — roughly 14 hours a day — the answer is instantly "no" and
 **no schedule lookup hits the wire**.
 
-### Stage 2 — the per-show window (venue-local)
+### Stage 2 — the schedule lookup
 
 Inside the gate, `showdateInWindow()` asks phish.net for the shows scheduled on
-each candidate date. Two dates are checked:
+the one date that could have a show underway right now:
 
-- **today** — an evening show belongs to today's date, and
-- **yesterday** — because after midnight a show that's still running belongs to
+- **today** in the gate's evening leg — an evening show belongs to today's date, and
+- **yesterday** after midnight — a show that's still running belongs to
   *yesterday's* showdate.
 
 `fetchShowsForDate()` is the one endpoint that returns *scheduled* (not-yet-played)
-shows, which is what makes live detection possible. Only Phish's own shows
-(`artistid === 1`) are considered.
-
-For each candidate show, the venue's timezone is resolved from its state
-(the synchronizer's state → IANA map) and the window is evaluated in that **local** time
-(`nowIsInsideWindowFor()`):
-
-- **Opens 7pm** local (`start_hour = 19`) — an hour before a typical 8pm downbeat,
-  to cover early starts.
-- **Closes 1am** local the next morning (`end_hour = 1`) — covers a long second
-  set plus encore.
-
-The timezone only needs to be roughly right: a ~6-hour window around a ~3-hour
-show means a zone that's an hour off still lands inside the window.
+shows, which is what makes live detection possible. Anything it returns for that
+date puts the loop on show-night pacing for the rest of the gate;
+`phishShowsScheduledFor()` prefers Phish's own rows (`artistid === 1`) but falls
+back to the whole payload rather than reading an unattributed schedule row as a
+quiet night. The bias is deliberate: polling early against an empty feed costs a
+few requests, while filtering away a real show leaves the loop on the hourly
+interval through the entire night and loses its songs.
 
 ### Two distinct questions
 
 The synchronizer exposes two related-but-different checks:
 
-- **`inShowWindow()`** → *is the clock inside a scheduled show's window?* This is
-  the **pacing signal** for the sync loop. It goes true an hour before downbeat,
-  so the loop is already polling on the fast interval by the time setlist entries
-  start landing. This is what the loop actually uses.
+- **`inShowWindow()`** → *is a show scheduled for right now, and not yet finished?*
+  This is the **pacing signal** for the sync loop. It goes true as soon as the gate
+  opens on a show date, well before downbeat, so the loop is already polling on the
+  fast interval by the time setlist entries start landing. This is what the loop
+  actually uses.
 - **`showInProgress()`** → *is a show window open **and** does the setlist already
   have entries upstream?* A stricter "songs are actively being played right now"
   signal. The window is what bounds it — without the window a finished show's
@@ -369,7 +363,6 @@ next visit so the app reopens where you left off.
 | `phishnet.sync.active_interval`      | `PHISHNET_SYNC_ACTIVE_INTERVAL`  | 360     | Seconds between checks during a show (>300)     |
 | `phishnet.sync.first_year`           | `PHISHNET_FIRST_YEAR`            | 1983    | Earliest year for `phish:backfill`             |
 | `phishnet.show_window.gate_*`        | `PHISHNET_SHOW_GATE_*`           | 18 / 4  | Eastern-time outer gate hours                  |
-| `phishnet.show_window.start/end_hour`| `PHISHNET_SHOW_START/END_HOUR`   | 19 / 1  | Venue-local show window hours                  |
 | `phishnet.client.interval`           | `CLIENT_SYNC_INTERVAL`           | 3600    | Browser poll interval when idle (seconds)      |
 | `phishnet.client.active_interval`    | `CLIENT_SYNC_ACTIVE_INTERVAL`    | 60      | Browser poll interval during a show (seconds)  |
 | `app.default_min_played`             | `DEFAULT_MINPLAYED`             | 10      | Default "not played" play-count threshold      |

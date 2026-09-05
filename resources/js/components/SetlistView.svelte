@@ -56,6 +56,16 @@
 
 {#if first}
     <div class="border-b p-12 m-0 border-gray-500">
+        {#if first.artistid !== 1}
+            <p
+                class="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase"
+            >
+                Guest appearance{first.artist_name
+                    ? ` — ${first.artist_name}`
+                    : ''}
+            </p>
+        {/if}
+
         <h3 class="mb-2 font-serif text-lg font-medium">
             {first.showdate} &mdash;
             <a

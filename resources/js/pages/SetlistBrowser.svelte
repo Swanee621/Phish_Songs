@@ -103,6 +103,14 @@
         },
     });
 
+    /**
+     * The loaded date, split per show. A date can carry more than one — a guest
+     * appearance alongside the band's own show — and each is its own setlist
+     * with its own header, rather than one block with both nights' sets run
+     * together under whichever happened to come back first.
+     */
+    const dateShows = $derived(rows === null ? [] : groupShows(rows));
+
     // True only while the setlist on screen is the show currently being played.
     const viewingActiveShow = $derived(
         livePoll.inShowWindow &&
@@ -167,14 +175,15 @@
         });
     });
 
-    function groupYearShows(data: SetlistRow[]): SetlistRow[][] {
+    /**
+     * Guest appearances (`artistid !== 1`) get a badge of their own rather than
+     * being dropped — the date lookup above has always been able to pull one up,
+     * so leaving them out of the year list only made them unfindable.
+     */
+    function groupShows(data: SetlistRow[]): SetlistRow[][] {
         const grouped = new SvelteMap<number, SetlistRow[]>();
 
         for (const row of data) {
-            if (row.artistid !== 1) {
-                continue;
-            }
-
             const existing = grouped.get(row.showid);
 
             if (existing) {
@@ -195,7 +204,7 @@
 
         yearShowsHttp.get(setlistsForYear.url(year), {
             onSuccess: (response) => {
-                yearShows = groupYearShows(response.data);
+                yearShows = groupShows(response.data);
                 yearLoading = false;
             },
         });
@@ -206,7 +215,7 @@
     function refreshYearShows(year: string) {
         yearShowsHttp.get(setlistsForYear.url(year), {
             onSuccess: (response) => {
-                yearShows = groupYearShows(response.data);
+                yearShows = groupShows(response.data);
             },
         });
     }
@@ -306,8 +315,13 @@
                             type="button"
                             onclick={() => loadDate(show[0].showdate)}
                             class={badgeClasses(showdate === show[0].showdate)}
+                            title={show[0].artistid !== 1
+                                ? `Guest appearance${show[0].artist_name ? ` — ${show[0].artist_name}` : ''}`
+                                : undefined}
                         >
-                            {show[0].showdate}
+                            {show[0].showdate}{#if show[0].artistid !== 1}<span
+                                    class="ml-1 opacity-70">· guest</span
+                                >{/if}
                         </button>
                     {/each}
                 {/if}
@@ -343,7 +357,12 @@
                     >
                 </div>
             {/if}
-            <SetlistView {rows} awaitingNextSong={viewingActiveShow} />
+            {#each dateShows as showRows (showRows[0].showid)}
+                <SetlistView
+                    rows={showRows}
+                    awaitingNextSong={viewingActiveShow}
+                />
+            {/each}
         {/if}
     </div>
 </div>

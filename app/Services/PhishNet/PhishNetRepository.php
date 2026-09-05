@@ -64,6 +64,7 @@ class PhishNetRepository
         'setlist_entries.artistid',
         'shows.showdate',
         'shows.showyear',
+        'shows.artist_name',
         'shows.permalink',
         'shows.setlistnotes',
         'shows.venueid',

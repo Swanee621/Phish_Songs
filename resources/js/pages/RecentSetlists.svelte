@@ -22,12 +22,15 @@
 
     const http = useHttp<Record<string, never>, { data: SetlistRow[] }>({});
 
+    /**
+     * Guest appearances (`artistid !== 1`) are kept: they are nights the band
+     * turned up and played, and dropping them left the list silently missing a
+     * show. `SetlistView` labels them with the host act.
+     */
     function groupIntoShows(rows: SetlistRow[]): SetlistRow[][] {
-        const phishRows = rows.filter((row) => row.artistid === 1);
-
         const grouped = new SvelteMap<number, SetlistRow[]>();
 
-        for (const row of phishRows) {
+        for (const row of rows) {
             const existing = grouped.get(row.showid);
 
             if (existing) {

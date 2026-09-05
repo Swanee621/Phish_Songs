@@ -7,6 +7,8 @@ export type SetlistRow = {
     state: string;
     country: string;
     artistid: number;
+    /** The host act on a guest appearance (`artistid !== 1`); null for Phish's own shows. */
+    artist_name: string | null;
     set: string;
     position: number;
     song: string;

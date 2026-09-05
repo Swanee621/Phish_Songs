@@ -391,6 +391,76 @@ test('another artists closing song does not end phishs show early', function () 
     expect(app(PhishNetRepository::class)->liveState()['inShowWindow'])->toBeTrue();
 });
 
+test('a guest appearance is imported with its host act and served in the payload', function () {
+    fakeSetlistYear(2026, [setlistRow([
+        'showdate' => '2026-09-03',
+        'showyear' => 2026,
+        'artistid' => -1,
+        'artist_name' => 'Darrell Scott',
+        'song' => 'Big River',
+        'slug' => 'big-river',
+    ])]);
+
+    app(PhishNetSynchronizer::class)->syncYear(2026);
+
+    expect(Show::query()->where('showdate', '2026-09-03')->value('artist_name'))->toBe('Darrell Scott');
+
+    // The year payload carries it through to the page, which needs both the
+    // sentinel id and the name to label the show as a guest appearance.
+    $rows = app(PhishNetRepository::class)->setlistsForYear(2026);
+
+    expect($rows)->toHaveCount(1)
+        ->and((int) $rows[0]['artistid'])->toBe(-1)
+        ->and($rows[0]['artist_name'])->toBe('Darrell Scott');
+});
+
+test('a guest appearances songs are what the header reports on a night phish does not play', function () {
+    fakeScheduledShows('2026-09-03', [scheduledShowRow([
+        'showdate' => '2026-09-03',
+        'artistid' => -1,
+        'artist_name' => 'Guest Appearance',
+    ])]);
+    fakeEndpoint('setlists/showdate/2026-09-03.json', [
+        setlistRow([
+            'showdate' => '2026-09-03',
+            'showyear' => 2026,
+            'artistid' => -1,
+            'artist_name' => 'Darrell Scott',
+            'song' => 'Big River',
+            'slug' => 'big-river',
+        ]),
+    ]);
+
+    $this->travelTo('2026-09-03 21:30:00 America/New_York');
+
+    app(PhishNetSynchronizer::class)->syncPass();
+
+    expect(app(PhishNetRepository::class)->liveState()['currentSongs'])->toBe('Big River');
+});
+
+test('a side projects songs are not reported as on stage while phish is playing', function () {
+    fakeScheduledShows('2026-07-19', [scheduledShowRow()]);
+    fakeEndpoint('setlists/showdate/2026-07-19.json', [
+        setlistRow(['showdate' => '2026-07-19', 'showyear' => 2026]),
+        setlistRow([
+            'showdate' => '2026-07-19',
+            'showyear' => 2026,
+            'showid' => 1739906999,
+            'uniqueid' => 510888,
+            'artistid' => 7,
+            'position' => 2,
+            'song' => 'Money Love and Change',
+            'slug' => 'money-love-and-change',
+        ]),
+    ]);
+
+    $this->travelTo('2026-07-19 21:30:00 America/New_York');
+
+    app(PhishNetSynchronizer::class)->syncPass();
+
+    expect(app(PhishNetRepository::class)->liveState()['currentSongs'])->toBe('First Tube');
+});
+
 test('a stale live snapshot does not hijack the pass after an outage', function () {
     // Published mid-show, right before the process running the loop dies.
     $this->travelTo('2026-07-19 21:30:00 America/New_York');

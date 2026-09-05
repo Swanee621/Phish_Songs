@@ -597,16 +597,26 @@ class PhishNetSynchronizer
          * song until the song after it lands. This runs once per sync, not per
          * request, so the query costs nothing worth caching.
          */
-        $rows = SetlistEntry::query()
+        $entries = SetlistEntry::query()
             ->whereIn('showid', Show::query()->where('showdate', $showdate)->pluck('showid'))
-            ->where('artistid', 1)
             ->orderBy('position')
-            ->get(['song', 'trans_mark', 'transition'])
+            ->get(['song', 'trans_mark', 'transition', 'artistid']);
+
+        /*
+         * Phish's own rows when the night has any — a side project playing the
+         * same date must never be what the header reports. When it has none the
+         * date belongs to a guest appearance, and its songs are the only thing
+         * on stage to report.
+         */
+        $phishEntries = $entries->where('artistid', 1);
+
+        $rows = ($phishEntries->isNotEmpty() ? $phishEntries : $entries)
             ->map(fn (SetlistEntry $entry): array => [
                 'song' => (string) $entry->song,
                 'trans_mark' => (string) $entry->trans_mark,
                 'transition' => (int) $entry->transition,
             ])
+            ->values()
             ->all();
 
         if ($rows === []) {
@@ -948,6 +958,7 @@ class PhishNetSynchronizer
                 'venueid' => isset($row['venueid']) ? (int) $row['venueid'] : null,
                 'tourid' => isset($row['tourid']) ? (int) $row['tourid'] : null,
                 'artistid' => (int) ($row['artistid'] ?? 1),
+                'artist_name' => $row['artist_name'] ?? null,
                 'permalink' => $row['permalink'] ?? null,
                 'setlistnotes' => $row['setlistnotes'] ?? null,
             ])
@@ -957,7 +968,7 @@ class PhishNetSynchronizer
             $shows->chunk(500)->each(fn ($chunk) => Show::upsert(
                 $chunk->all(),
                 uniqueBy: ['showid'],
-                update: ['showdate', 'showyear', 'venueid', 'tourid', 'artistid', 'permalink', 'setlistnotes'],
+                update: ['showdate', 'showyear', 'venueid', 'tourid', 'artistid', 'artist_name', 'permalink', 'setlistnotes'],
             ));
         }
     }

@@ -8,11 +8,11 @@
     import {
         setlistsForYear,
         showYears,
-        songPerformances,
         songs as songsRoute,
     } from '@/actions/App/Http/Controllers/AppController';
     import AppHead from '@/components/AppHead.svelte';
     import SetlistView from '@/components/SetlistView.svelte';
+    import SongHistoryDialog from '@/components/SongHistoryDialog.svelte';
     import { createLivePoll, formatCountdown } from '@/lib/live-poll.svelte';
     import { readPrefsCookie, writePrefsCookie } from '@/lib/prefs-cookie';
     import type { SetlistRow, ShowYear, Song } from '@/types/phishnet';
@@ -39,35 +39,6 @@
     /** On stage right now — replaced by the green above once the show ends. */
     const LATEST_SONG_CLASSES =
         'bg-amber-500/15 font-medium text-amber-700 ring-1 ring-amber-500/40 dark:text-amber-300';
-
-    /**
-     * Sets the dialog's boxes for the tour on screen apart from the older
-     * performances listed underneath them. Border colour and width are separate
-     * properties from the `border` the box already carries, so these can safely
-     * be appended rather than swapped in.
-     */
-    const CURRENT_TOUR_BOX_CLASSES = 'border-amber-500/70 bg-amber-500/5';
-
-    /**
-     * The fields each performance box lists, in the order they are shown. The
-     * underlying rows carry far more than this — ids, slugs, jam flags — which
-     * is noise once the box is something you read rather than debug with.
-     */
-    const PERFORMANCE_FIELDS: {
-        key: keyof SetlistRow;
-        label: string;
-        html?: boolean;
-    }[] = [
-        { key: 'song', label: 'Song' },
-        { key: 'showdate', label: 'Date' },
-        { key: 'setlistnotes', label: 'Notes', html: true },
-        { key: 'venue', label: 'Venue' },
-        { key: 'city', label: 'City' },
-        { key: 'state', label: 'State' },
-        { key: 'country', label: 'Country' },
-        { key: 'tourname', label: 'Tour' },
-        { key: 'tourwhen', label: 'Tour Run' },
-    ];
 
     const badgeClasses = (isSelected: boolean): string =>
         `${BADGE_CLASSES} ${
@@ -163,26 +134,6 @@
     let dialogOpen = $state(false);
     let dialogSlug = $state<string | null>(null);
 
-    /**
-     * The song's most recent performances anywhere, which the server looks up
-     * per dialog rather than the page holding every year in memory. A page at a
-     * time, extended as the dialog is scrolled: a well-worn song has hundreds of
-     * these behind it, and most dialogs are closed after the first few.
-     */
-    let recentPerformances = $state<SetlistRow[]>([]);
-    let recentPerformancesLoading = $state(false);
-    let recentPerformancesLoadingMore = $state(false);
-    let recentPerformancesHasMore = $state(false);
-
-    /**
-     * The tour the dialog was opened from, held for the length of the dialog so
-     * every page asks the server to exclude the same one.
-     */
-    let dialogExcludeTourId = $state<number | null>(null);
-
-    let dialogScroller = $state<HTMLDivElement | null>(null);
-    let performancesSentinel = $state<HTMLDivElement | null>(null);
-
     let minTimesPlayed = $state(
         typeof savedPrefs?.minTimesPlayed === 'number'
             ? savedPrefs.minTimesPlayed
@@ -237,11 +188,6 @@
     const refreshHttp = useHttp<Record<string, never>, { data: SetlistRow[] }>(
         {},
     );
-    const performancesHttp = useHttp<
-        Record<string, never>,
-        { data: SetlistRow[]; meta: { hasMore: boolean } }
-    >({});
-
     // Shared poll loop: refetch the live year whenever its version hash moves,
     // and expose the show-window flag + countdown the setlists section renders.
     const livePoll = createLivePoll({
@@ -581,25 +527,11 @@
         allSongs?.find((song) => song.slug === dialogSlug) ?? null,
     );
 
+    /** Newest first, the way the dialog lists every other performance. */
     const dialogPerformances = $derived(
         [...tourRows]
             .filter((row) => row.slug === dialogSlug)
-            .sort((a, b) => a.showdate.localeCompare(b.showdate)),
-    );
-
-    const dialogSongName = $derived(
-        dialogCatalogEntry?.song ??
-            dialogPerformances[0]?.song ??
-            dialogSlug ??
-            '',
-    );
-
-    /**
-     * phish.net has no permalink on the song catalog itself, only on shows, so
-     * a song's page is addressed by its slug the same way the setlists do.
-     */
-    const dialogSongUrl = $derived(
-        dialogSlug === null ? null : `https://phish.net/song/${dialogSlug}`,
+            .sort((a, b) => b.showdate.localeCompare(a.showdate)),
     );
 
     const prevDisabled = $derived(
@@ -759,83 +691,6 @@
     function openSongDialog(slug: string) {
         dialogSlug = slug;
         dialogOpen = true;
-        dialogExcludeTourId = selectedTour?.tourid ?? null;
-        recentPerformances = [];
-        recentPerformancesHasMore = false;
-        performancesSentinel = null;
-
-        fetchPerformancesPage(slug, 0);
-    }
-
-    /**
-     * One page of past performances, appended to what the dialog already holds.
-     *
-     * `offset` doubles as the guard against a stale response: a dialog that has
-     * since been closed, reopened, or moved to another song no longer has a list
-     * that page belongs on the end of.
-     */
-    function fetchPerformancesPage(slug: string, offset: number) {
-        if (offset === 0) {
-            recentPerformancesLoading = true;
-        } else {
-            recentPerformancesLoadingMore = true;
-        }
-
-        const settle = () => {
-            recentPerformancesLoading = false;
-            recentPerformancesLoadingMore = false;
-        };
-
-        performancesHttp.get(
-            songPerformances.url(slug, {
-                query: {
-                    // The tour on screen is already listed in full above these,
-                    // so asking for it back would waste slots on duplicates.
-                    exclude_tour: dialogExcludeTourId,
-                    offset,
-                },
-            }),
-            {
-                onSuccess: (response) => {
-                    if (
-                        dialogSlug !== slug ||
-                        recentPerformances.length !== offset
-                    ) {
-                        return;
-                    }
-
-                    recentPerformances = [
-                        ...recentPerformances,
-                        ...response.data,
-                    ];
-                    recentPerformancesHasMore = response.meta.hasMore;
-                    settle();
-                },
-                onError: settle,
-                onNetworkError: settle,
-            },
-        );
-    }
-
-    function loadMorePerformances() {
-        if (
-            dialogSlug === null ||
-            !recentPerformancesHasMore ||
-            recentPerformancesLoading ||
-            recentPerformancesLoadingMore
-        ) {
-            return;
-        }
-
-        fetchPerformancesPage(dialogSlug, recentPerformances.length);
-    }
-
-    function formatFieldValue(value: unknown): string {
-        if (value === null || value === undefined || value === '') {
-            return '—';
-        }
-
-        return String(value);
     }
 
     function cycleTour(direction: 1 | -1) {
@@ -925,37 +780,6 @@
         if (viewMode !== 'played' && statShown === 'tour-plays') {
             statShown = 'play-count';
         }
-    });
-
-    // Pull the next page of past performances in as the foot of the list comes
-    // into view inside the dialog, a screen ahead of the user reaching it.
-    $effect(() => {
-        /*
-         * Read so a landed page re-runs this and re-observes: an observer
-         * reports crossings, not the standing state, so a page too short to push
-         * the sentinel back off screen would otherwise stall the list there.
-         */
-        const loaded = recentPerformances.length;
-
-        const sentinel = performancesSentinel;
-        const root = dialogScroller;
-
-        if (loaded === 0 || sentinel === null || root === null) {
-            return;
-        }
-
-        const observer = new IntersectionObserver(
-            (entries) => {
-                if (entries.some((entry) => entry.isIntersecting)) {
-                    loadMorePerformances();
-                }
-            },
-            { root, rootMargin: '200px' },
-        );
-
-        observer.observe(sentinel);
-
-        return () => observer.disconnect();
     });
 
     $effect(() => {
@@ -1491,150 +1315,11 @@
     {/if}
 </div>
 
-{#snippet performanceBox(row: SetlistRow, fromCurrentTour: boolean)}
-    <div
-        class="mt-2 rounded border p-2 {fromCurrentTour
-            ? CURRENT_TOUR_BOX_CLASSES
-            : ''}"
-    >
-        <p class="mb-1 text-xs font-medium">
-            <a
-                href={row.permalink}
-                target="_blank"
-                rel="noopener"
-                class="text-primary underline decoration-primary/30 underline-offset-4"
-            >
-                {row.showdate} &mdash; {row.venue}
-            </a>
-        </p>
-        <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-            {#each PERFORMANCE_FIELDS as field (field.key)}
-                <dt class="font-medium text-muted-foreground">{field.label}</dt>
-                <dd class="wrap-break-word">
-                    {#if field.html && row[field.key]}
-                        <!--
-                            Setlist notes arrive from phish.net as a fragment of
-                            markup — footnote links and emphasis — so they are
-                            rendered rather than escaped, the same way the
-                            setlist views do.
-                          -->
-                        <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-                        {@html row[field.key]}
-                    {:else}
-                        {formatFieldValue(row[field.key])}
-                    {/if}
-                </dd>
-            {/each}
-        </dl>
-    </div>
-{/snippet}
-
-{#if dialogOpen}
-    <div class="fixed inset-0 z-50 flex items-center justify-center">
-        <button
-            type="button"
-            class="fixed inset-0 bg-black/50"
-            aria-label="Close"
-            onclick={() => (dialogOpen = false)}
-        ></button>
-        <div
-            bind:this={dialogScroller}
-            class="relative z-10 max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-lg border bg-background p-6 shadow-lg"
-            role="dialog"
-            aria-modal="true"
-        >
-            <h2 class="text-lg leading-none font-semibold tracking-tight">
-                <a
-                    href={dialogSongUrl}
-                    target="_blank"
-                    rel="noopener"
-                    class="text-primary underline decoration-primary/30 underline-offset-4"
-                >
-                    {dialogSongName}
-                </a>
-            </h2>
-
-            {#if dialogCatalogEntry}
-                <div class="mt-4">
-                    <h3
-                        class="mb-1 text-sm font-semibold text-muted-foreground"
-                    >
-                        Song catalog
-                    </h3>
-                    <dl
-                        class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm"
-                    >
-                        {#each Object.entries(dialogCatalogEntry) as [key, value] (key)}
-                            <dt class="font-mono text-xs text-muted-foreground">
-                                {key}
-                            </dt>
-                            <dd class="wrap-break-word">
-                                {#if typeof value === 'string' && value.startsWith('https://')}
-                                    <a
-                                        href={value}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                    >
-                                        {value}
-                                    </a>
-                                {:else}
-                                    {formatFieldValue(value)}
-                                {/if}
-                            </dd>
-                        {/each}
-                    </dl>
-                </div>
-            {/if}
-
-            <div class="mt-4">
-                <h3 class="mb-1 text-sm font-semibold text-muted-foreground">
-                    Performances in {selectedTour?.tourname ?? 'this tour'} ({dialogPerformances.length})
-                </h3>
-                {#if dialogPerformances.length}
-                    {#each dialogPerformances.reverse() as row, i (row.showid + '-' + i)}
-                        {@render performanceBox(row, true)}
-                    {/each}
-                {:else}
-                    <p class="text-sm text-muted-foreground">
-                        Not played in this tour.
-                    </p>
-                {/if}
-            </div>
-
-            <div class="mt-4">
-                <h3 class="mb-1 text-sm font-semibold text-muted-foreground">
-                    Most recent past performances
-                </h3>
-                {#if recentPerformancesLoading}
-                    <p class="text-sm text-muted-foreground">Loading…</p>
-                {:else if recentPerformances.length}
-                    {#each recentPerformances as row (row.showid + '-' + row.position)}
-                        {@render performanceBox(row, false)}
-                    {/each}
-                    {#if recentPerformancesHasMore}
-                        <div
-                            bind:this={performancesSentinel}
-                            class="py-3 text-center text-sm text-muted-foreground"
-                        >
-                            {recentPerformancesLoadingMore ? 'Loading…' : ''}
-                        </div>
-                    {/if}
-                {:else}
-                    <p class="text-sm text-muted-foreground">New song</p>
-                {/if}
-            </div>
-
-            <div
-                class="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"
-            >
-                <button
-                    type="button"
-                    onclick={() => (dialogOpen = false)}
-                    class="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-input bg-background px-5 py-2.5 text-base font-medium whitespace-nowrap transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none md:h-9 md:px-4 md:py-2 md:text-sm"
-                >
-                    Close
-                </button>
-            </div>
-        </div>
-    </div>
-{/if}
+<SongHistoryDialog
+    bind:open={dialogOpen}
+    slug={dialogSlug}
+    catalogEntry={dialogCatalogEntry}
+    tourId={selectedTour?.tourid ?? null}
+    tourName={selectedTour?.tourname ?? 'this tour'}
+    tourPerformances={dialogPerformances}
+/>

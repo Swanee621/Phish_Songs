@@ -168,6 +168,29 @@ class PhishNetRepository
     }
 
     /**
+     * Every time a song was played on one tour, newest first.
+     *
+     * The whole tour rather than a page of it: a song's run through a single
+     * tour is a handful of shows, and the dialog lists them all above the wider
+     * history. Uncached for the same reason as {@see recentPerformances()} — the
+     * tour asked about can be the one being played tonight.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function performancesInTour(string $slug, int $tourId): array
+    {
+        return $this->setlistQuery()
+            ->where('setlist_entries.slug', $slug)
+            ->where('setlist_entries.artistid', 1)
+            ->where('shows.tourid', $tourId)
+            ->orderByDesc('shows.showdate')
+            ->orderByDesc('setlist_entries.position')
+            ->get()
+            ->map(fn ($row) => (array) $row)
+            ->all();
+    }
+
+    /**
      * The live-status snapshot the browser polls: a version hash that moves
      * whenever the current year's setlist data changes, plus the show-window
      * flag the sync loop last observed. Served straight from cache so a poll

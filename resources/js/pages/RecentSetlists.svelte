@@ -9,6 +9,7 @@
     import AppHead from '@/components/AppHead.svelte';
     import GuestAppearancesToggle from '@/components/GuestAppearancesToggle.svelte';
     import SetlistView from '@/components/SetlistView.svelte';
+    import SongHistoryDialog from '@/components/SongHistoryDialog.svelte';
     import { guestAppearances } from '@/lib/guest-appearances.svelte';
     import { createLivePoll, formatCountdown } from '@/lib/live-poll.svelte';
     import type { SetlistRow } from '@/types/phishnet';
@@ -21,6 +22,26 @@
 
     let shows = $state<SetlistRow[][]>([]);
     let loaded = $state(false);
+
+    let songDialogOpen = $state(false);
+    let songDialogSlug = $state<string | null>(null);
+    let songDialogName = $state('');
+    let songDialogTourId = $state<number | null>(null);
+    let songDialogTourName = $state<string | null>(null);
+
+    /**
+     * The tour the clicked show belongs to, so the dialog can call out the rest
+     * of that tour's plays the way the song checker does. Not every show is on
+     * one — a one-off or a guest appearance has no tour — and those open with
+     * the plain history instead.
+     */
+    function openSongDialog(row: SetlistRow) {
+        songDialogSlug = row.slug;
+        songDialogName = row.song;
+        songDialogTourId = row.tourid || null;
+        songDialogTourName = songDialogTourId === null ? null : row.tourname;
+        songDialogOpen = true;
+    }
 
     const http = useHttp<Record<string, never>, { data: SetlistRow[] }>({});
 
@@ -131,8 +152,17 @@
                     {rows}
                     awaitingNextSong={livePoll.inShowWindow &&
                         rows[0].showdate === livePoll.activeShowdate}
+                    onSongClick={openSongDialog}
                 />
             {/each}
         </div>
     {/if}
 </div>
+
+<SongHistoryDialog
+    bind:open={songDialogOpen}
+    slug={songDialogSlug}
+    songName={songDialogName}
+    tourId={songDialogTourId}
+    tourName={songDialogTourName}
+/>

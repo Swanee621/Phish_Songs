@@ -10,6 +10,7 @@
     import AppHead from '@/components/AppHead.svelte';
     import GuestAppearancesToggle from '@/components/GuestAppearancesToggle.svelte';
     import SetlistView from '@/components/SetlistView.svelte';
+    import SongHistoryDialog from '@/components/SongHistoryDialog.svelte';
     import { guestAppearances } from '@/lib/guest-appearances.svelte';
     import { createLivePoll, formatCountdown } from '@/lib/live-poll.svelte';
     import { readPrefsCookie, writePrefsCookie } from '@/lib/prefs-cookie';
@@ -59,6 +60,26 @@
     let rows = $state<SetlistRow[] | null>(null);
     let loading = $state(false);
     let notFound = $state(false);
+
+    let songDialogOpen = $state(false);
+    let songDialogSlug = $state<string | null>(null);
+    let songDialogName = $state('');
+    let songDialogTourId = $state<number | null>(null);
+    let songDialogTourName = $state<string | null>(null);
+
+    /**
+     * The tour the clicked show belongs to, so the dialog can call out the rest
+     * of that tour's plays the way the song checker does. Not every show is on
+     * one — a one-off or a guest appearance has no tour — and those open with
+     * the plain history instead.
+     */
+    function openSongDialog(row: SetlistRow) {
+        songDialogSlug = row.slug;
+        songDialogName = row.song;
+        songDialogTourId = row.tourid || null;
+        songDialogTourName = songDialogTourId === null ? null : row.tourname;
+        songDialogOpen = true;
+    }
 
     // Holds the cookie write back until the saved year/date have been restored,
     // so an early unmount can't overwrite them with empty defaults.
@@ -360,7 +381,7 @@
                             title={show[0].artistid !== 1
                                 ? `Guest appearance${show[0].artist_name ? ` — ${show[0].artist_name}` : ''}`
                                 : undefined}
-                        >{show[0].showdate}
+                            >{show[0].showdate}
                         </button>
                     {/each}
                 {/if}
@@ -400,8 +421,17 @@
                 <SetlistView
                     rows={showRows}
                     awaitingNextSong={viewingActiveShow}
+                    onSongClick={openSongDialog}
                 />
             {/each}
         {/if}
     </div>
 </div>
+
+<SongHistoryDialog
+    bind:open={songDialogOpen}
+    slug={songDialogSlug}
+    songName={songDialogName}
+    tourId={songDialogTourId}
+    tourName={songDialogTourName}
+/>

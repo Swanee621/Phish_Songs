@@ -20,5 +20,9 @@ Route::prefix('data')->name('data.')->group(function () {
     Route::get('/songs/{slug}/performances', [AppController::class, 'songPerformances'])
         ->where('slug', '[a-z0-9-]+')
         ->name('song-performances');
+    Route::get('/songs/{slug}/performances/tour/{tour}', [AppController::class, 'songTourPerformances'])
+        ->where('slug', '[a-z0-9-]+')
+        ->where('tour', '[0-9]+')
+        ->name('song-tour-performances');
     Route::get('/live', [AppController::class, 'liveStatus'])->name('live');
 });

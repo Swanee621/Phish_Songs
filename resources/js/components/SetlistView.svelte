@@ -6,7 +6,17 @@
     let {
         rows,
         awaitingNextSong = false,
-    }: { rows: SetlistRow[]; awaitingNextSong?: boolean } = $props();
+        onSongClick,
+    }: {
+        rows: SetlistRow[];
+        awaitingNextSong?: boolean;
+        /**
+         * Handed a song, the titles become buttons that call this instead of
+         * links out to phish.net — for a page that can show the song's history
+         * in place.
+         */
+        onSongClick?: (row: SetlistRow) => void;
+    } = $props();
 
     /**
      * The phish.net transition code on the last song before a setbreak. The
@@ -98,13 +108,18 @@
                 {setLabels[key] ?? `Set ${key}`}
             </h4>
             <p class="text-sm leading-7">
-                {#each songs as song, i (song.slug + i)}<a
-                        href={`https://phish.net/song/${song.slug}`}
-                        target="_blank"
-                        rel="noopener"
-                        class="hover:text-primary hover:underline"
-                        >{song.song}</a
-                    >{i < songs.length - 1
+                {#each songs as song, i (song.slug + i)}{#if onSongClick}<button
+                            type="button"
+                            onclick={() => onSongClick?.(song)}
+                            class="inline cursor-pointer text-left hover:text-primary hover:underline"
+                            >{song.song}</button
+                        >{:else}<a
+                            href={`https://phish.net/song/${song.slug}`}
+                            target="_blank"
+                            rel="noopener"
+                            class="hover:text-primary hover:underline"
+                            >{song.song}</a
+                        >{/if}{i < songs.length - 1
                         ? song.trans_mark || ', '
                         : ''}{/each}{#if awaitingNextSong && !inSetBreak && setIndex === sets.length - 1}<span
                         class="ml-1 inline-flex items-center align-middle text-muted-foreground"

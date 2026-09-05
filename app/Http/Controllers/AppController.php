@@ -102,6 +102,19 @@ class AppController extends Controller
     }
 
     /**
+     * Every performance of a song on one tour, which the song dialog lists
+     * above the wider history and highlights as the tour it was opened from.
+     *
+     * The song checker already holds the tour on screen in memory and passes it
+     * to the dialog directly; the setlist pages hold only the shows they are
+     * listing, so they ask for it here.
+     */
+    public function songTourPerformances(PhishNetRepository $repository, string $slug, int $tour): JsonResponse
+    {
+        return response()->json(['data' => $repository->performancesInTour($slug, $tour)]);
+    }
+
+    /**
      * The lightweight snapshot the browser polls to decide whether its data is
      * stale. The version hash moves when new setlist data lands; the poll
      * interval mirrors the server's own pacing so the page speeds up during a

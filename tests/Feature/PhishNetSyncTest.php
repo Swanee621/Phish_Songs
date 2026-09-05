@@ -741,6 +741,52 @@ test('the song performances endpoint can leave out the tour the dialog already l
         ->assertJsonPath('data.0.showdate', '2025-07-25');
 });
 
+test('the song tour performances endpoint returns every play on one tour, newest first', function () {
+    fakeSetlistYear(2025, [
+        setlistRow(),
+        setlistRow([
+            'showid' => 1739906900,
+            'uniqueid' => 510500,
+            'showdate' => '2025-08-01',
+        ]),
+        setlistRow([
+            'showid' => 1739906950,
+            'uniqueid' => 510550,
+            'showdate' => '2025-09-01',
+            'tourid' => 212,
+            'tourname' => '2025 Fall Tour',
+        ]),
+    ]);
+
+    app(PhishNetSynchronizer::class)->syncYear(2025);
+
+    $response = $this->getJson(route('data.song-tour-performances', [
+        'slug' => 'first-tube',
+        'tour' => 211,
+    ]))
+        ->assertOk()
+        ->assertJsonCount(2, 'data');
+
+    /** Both plays on the asked-for tour, and not the one on the other tour. */
+    expect($response->json('data.*.showdate'))->toBe([
+        '2025-08-01',
+        '2025-07-25',
+    ]);
+});
+
+test('the song tour performances endpoint comes back empty for a tour the song sat out', function () {
+    fakeSetlistYear(2025, [setlistRow()]);
+
+    app(PhishNetSynchronizer::class)->syncYear(2025);
+
+    $this->getJson(route('data.song-tour-performances', [
+        'slug' => 'first-tube',
+        'tour' => 212,
+    ]))
+        ->assertOk()
+        ->assertJsonCount(0, 'data');
+});
+
 test('the tick command holds off while the last sync is still within the interval', function () {
     config(['phishnet.sync.interval' => 3600]);
     $this->travelTo('2026-07-19 12:00:00');

@@ -7,7 +7,9 @@
         setlistsForYear,
     } from '@/actions/App/Http/Controllers/AppController';
     import AppHead from '@/components/AppHead.svelte';
+    import GuestAppearancesToggle from '@/components/GuestAppearancesToggle.svelte';
     import SetlistView from '@/components/SetlistView.svelte';
+    import { guestAppearances } from '@/lib/guest-appearances.svelte';
     import { createLivePoll, formatCountdown } from '@/lib/live-poll.svelte';
     import type { SetlistRow } from '@/types/phishnet';
 
@@ -43,6 +45,16 @@
         // Most recent show first.
         return [...grouped.values()].reverse();
     }
+
+    const guestCount = $derived(
+        shows.filter((rows) => rows[0].artistid !== 1).length,
+    );
+
+    const visibleShows = $derived(
+        guestAppearances.shown
+            ? shows
+            : shows.filter((rows) => rows[0].artistid === 1),
+    );
 
     const livePoll = createLivePoll({
         activeInterval: clientSyncActiveInterval,
@@ -104,15 +116,17 @@
                 >
             {/if}
         </div>
+
+        <GuestAppearancesToggle count={guestCount} />
     {/if}
 
     {#if !loaded}
         <p class="text-sm text-muted-foreground">Loading…</p>
-    {:else if !shows.length}
+    {:else if !visibleShows.length}
         <p class="text-sm text-muted-foreground">No setlist data available.</p>
     {:else}
         <div class="max-w-2xl">
-            {#each shows as rows (rows[0].showid)}
+            {#each visibleShows as rows (rows[0].showid)}
                 <SetlistView
                     {rows}
                     awaitingNextSong={livePoll.inShowWindow &&

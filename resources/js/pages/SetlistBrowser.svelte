@@ -8,7 +8,9 @@
         showYears,
     } from '@/actions/App/Http/Controllers/AppController';
     import AppHead from '@/components/AppHead.svelte';
+    import GuestAppearancesToggle from '@/components/GuestAppearancesToggle.svelte';
     import SetlistView from '@/components/SetlistView.svelte';
+    import { guestAppearances } from '@/lib/guest-appearances.svelte';
     import { createLivePoll, formatCountdown } from '@/lib/live-poll.svelte';
     import { readPrefsCookie, writePrefsCookie } from '@/lib/prefs-cookie';
     import type { ShowYear, SetlistRow } from '@/types/phishnet';
@@ -16,11 +18,18 @@
     const BADGE_CLASSES =
         'inline-flex w-fit shrink-0 cursor-pointer items-center justify-center gap-1 overflow-hidden rounded-full border border-transparent px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-[color,box-shadow]';
 
-    const badgeClasses = (isSelected: boolean): string =>
+    /**
+     * A guest appearance's pill is set in muted grey so it reads as a lesser
+     * entry among the year's shows. Selecting one drops that: on the primary
+     * fill it would be the selected pill that was hardest to read.
+     */
+    const badgeClasses = (isSelected: boolean, isGuest = false): string =>
         `${BADGE_CLASSES} ${
             isSelected
                 ? 'bg-primary text-primary-foreground'
-                : 'bg-secondary text-secondary-foreground'
+                : isGuest
+                  ? 'bg-secondary text-muted-foreground'
+                  : 'bg-secondary text-secondary-foreground'
         }`;
 
     type StoredPrefs = {
@@ -108,8 +117,32 @@
      * appearance alongside the band's own show — and each is its own setlist
      * with its own header, rather than one block with both nights' sets run
      * together under whichever happened to come back first.
+     *
+     * Hiding guest appearances thins a mixed date but never blanks one: looking
+     * a date up is an explicit request for it, so the last show standing is
+     * shown whatever it is.
      */
-    const dateShows = $derived(rows === null ? [] : groupShows(rows));
+    const dateShows = $derived.by(() => {
+        const grouped = rows === null ? [] : groupShows(rows);
+
+        if (guestAppearances.shown) {
+            return grouped;
+        }
+
+        const phishShows = grouped.filter((show) => show[0].artistid === 1);
+
+        return phishShows.length ? phishShows : grouped;
+    });
+
+    const visibleYearShows = $derived(
+        guestAppearances.shown
+            ? yearShows
+            : yearShows.filter((show) => show[0].artistid === 1),
+    );
+
+    const guestCount = $derived(
+        yearShows.filter((show) => show[0].artistid !== 1).length,
+    );
 
     // True only while the setlist on screen is the show currently being played.
     const viewingActiveShow = $derived(
@@ -297,31 +330,37 @@
 
     {#if selectedYear}
         <div>
-            <h2 class="mb-2 text-sm font-semibold text-muted-foreground">
-                Shows in {selectedYear}
-            </h2>
+            <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <h2 class="text-sm font-semibold text-muted-foreground">
+                    Shows in {selectedYear}
+                </h2>
+
+                {#if !yearLoading}
+                    <GuestAppearancesToggle count={guestCount} />
+                {/if}
+            </div>
             <div class="flex flex-wrap gap-1.5">
                 {#if yearLoading}
                     <span class="text-sm text-muted-foreground"
                         >Loading shows…</span
                     >
-                {:else if !yearShows.length}
+                {:else if !visibleYearShows.length}
                     <span class="text-sm text-muted-foreground"
                         >No shows found.</span
                     >
                 {:else}
-                    {#each yearShows as show (show[0].showid)}
+                    {#each visibleYearShows as show (show[0].showid)}
                         <button
                             type="button"
                             onclick={() => loadDate(show[0].showdate)}
-                            class={badgeClasses(showdate === show[0].showdate)}
+                            class={badgeClasses(
+                                showdate === show[0].showdate,
+                                show[0].artistid !== 1,
+                            )}
                             title={show[0].artistid !== 1
                                 ? `Guest appearance${show[0].artist_name ? ` — ${show[0].artist_name}` : ''}`
                                 : undefined}
-                        >
-                            {show[0].showdate}{#if show[0].artistid !== 1}<span
-                                    class="ml-1 opacity-70">· guest</span
-                                >{/if}
+                        >{show[0].showdate}
                         </button>
                     {/each}
                 {/if}

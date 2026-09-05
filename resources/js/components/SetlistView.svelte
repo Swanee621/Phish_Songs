@@ -55,7 +55,17 @@
 </script>
 
 {#if first}
-    <div class="border-b p-12 m-0 border-gray-500">
+    <!--
+        A guest appearance's setlist is set in the muted grey the rest of the app
+        uses for secondary text, so it reads as a lesser entry at a glance rather
+        than only where the label says so. The venue link keeps its own colour.
+    -->
+    <div
+        class={[
+            'border-b p-12 m-0 border-gray-500',
+            first.artistid !== 1 && 'text-muted-foreground',
+        ]}
+    >
         {#if first.artistid !== 1}
             <p
                 class="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase"

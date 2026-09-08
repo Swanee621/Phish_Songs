@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { useHttp } from '@inertiajs/svelte';
+    import { page, useHttp } from '@inertiajs/svelte';
     import { onMount } from 'svelte';
     import { SvelteMap, SvelteSet } from 'svelte/reactivity';
     import {
@@ -12,6 +12,7 @@
     import SetlistView from '@/components/SetlistView.svelte';
     import SongHistoryDialog from '@/components/SongHistoryDialog.svelte';
     import { guestAppearances } from '@/lib/guest-appearances.svelte';
+    import { createScrollMemory, toPath } from '@/lib/last-visit';
     import { createLivePoll, formatCountdown } from '@/lib/live-poll.svelte';
     import { readPrefsCookie, writePrefsCookie } from '@/lib/prefs-cookie';
     import type { ShowYear, SetlistRow } from '@/types/phishnet';
@@ -41,6 +42,8 @@
     const PREFS_COOKIE_NAME = 'setlist-browser-prefs';
 
     const savedPrefs = readPrefsCookie<StoredPrefs>(PREFS_COOKIE_NAME);
+
+    const scrollMemory = createScrollMemory(toPath(page.url));
 
     let {
         clientSyncActiveInterval = 60,
@@ -197,7 +200,20 @@
 
         livePoll.start();
 
-        return () => livePoll.stop();
+        const stopTracking = scrollMemory.track();
+
+        return () => {
+            stopTracking();
+            livePoll.stop();
+        };
+    });
+
+    // Only once the restored year and date have actually come back is the
+    // document tall enough to hold the offset the visitor left at.
+    $effect(() => {
+        if (prefsHydrated && !yearLoading && !loading) {
+            scrollMemory.restore();
+        }
     });
 
     /**

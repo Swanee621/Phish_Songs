@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { useHttp } from '@inertiajs/svelte';
+    import { page, useHttp } from '@inertiajs/svelte';
     import Check from 'lucide-svelte/icons/check';
     import ChevronDown from 'lucide-svelte/icons/chevron-down';
     import { onMount } from 'svelte';
@@ -13,6 +13,7 @@
     import AppHead from '@/components/AppHead.svelte';
     import SetlistView from '@/components/SetlistView.svelte';
     import SongHistoryDialog from '@/components/SongHistoryDialog.svelte';
+    import { createScrollMemory, lastVisit, toPath } from '@/lib/last-visit';
     import { createLivePoll, formatCountdown } from '@/lib/live-poll.svelte';
     import { readPrefsCookie, writePrefsCookie } from '@/lib/prefs-cookie';
     import type { SetlistRow, ShowYear, Song } from '@/types/phishnet';
@@ -81,6 +82,8 @@
     const PREFS_COOKIE_NAME = 'tour-explorer-prefs';
 
     const savedPrefs = readPrefsCookie<StoredPrefs>(PREFS_COOKIE_NAME);
+
+    const scrollMemory = createScrollMemory(toPath(page.url));
 
     let {
         excludedSongs = [],
@@ -717,6 +720,13 @@
     }
 
     onMount(() => {
+        // A returning visitor whose last page was elsewhere is already on their
+        // way there. Fetching the years, every song and a tour's setlists just
+        // to unmount a moment later is three requests thrown away.
+        if (lastVisit.bouncePending) {
+            return;
+        }
+
         yearsHttp.get(showYears.url(), {
             onSuccess: (response) => {
                 const seen = new SvelteSet<number>();
@@ -771,7 +781,29 @@
         // Establish the version baseline and start the self-pacing poll loop.
         livePoll.start();
 
-        return () => livePoll.stop();
+        const stopTracking = scrollMemory.track();
+
+        return () => {
+            stopTracking();
+            livePoll.stop();
+        };
+    });
+
+    /*
+     * The song list is built from three separate fetches, and the years arriving
+     * only means the page has begun filling in. Waiting on the tour's setlists
+     * and the song catalog too is what makes the document tall enough to hold
+     * the offset the visitor left at.
+     */
+    $effect(() => {
+        if (
+            !initialLoading &&
+            yearsLoaded &&
+            !loadingYear &&
+            !allSongsLoading
+        ) {
+            scrollMemory.restore();
+        }
     });
 
     // "Tour Plays" only exists for the played list, so fall back to Gap when the

@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { useHttp } from '@inertiajs/svelte';
+    import { page, useHttp } from '@inertiajs/svelte';
     import { onMount } from 'svelte';
     import { SvelteMap } from 'svelte/reactivity';
     import {
@@ -11,6 +11,7 @@
     import SetlistView from '@/components/SetlistView.svelte';
     import SongHistoryDialog from '@/components/SongHistoryDialog.svelte';
     import { guestAppearances } from '@/lib/guest-appearances.svelte';
+    import { createScrollMemory, toPath } from '@/lib/last-visit';
     import { createLivePoll, formatCountdown } from '@/lib/live-poll.svelte';
     import type { SetlistRow } from '@/types/phishnet';
 
@@ -22,6 +23,8 @@
 
     let shows = $state<SetlistRow[][]>([]);
     let loaded = $state(false);
+
+    const scrollMemory = createScrollMemory(toPath(page.url));
 
     let songDialogOpen = $state(false);
     let songDialogSlug = $state<string | null>(null);
@@ -102,7 +105,20 @@
 
         livePoll.start();
 
-        return () => livePoll.stop();
+        const stopTracking = scrollMemory.track();
+
+        return () => {
+            stopTracking();
+            livePoll.stop();
+        };
+    });
+
+    // The setlists arrive over XHR after mount, so `loaded` is the first moment
+    // the document is tall enough to hold the offset the visitor left at.
+    $effect(() => {
+        if (loaded) {
+            scrollMemory.restore();
+        }
     });
 </script>
 

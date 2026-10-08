@@ -26,3 +26,14 @@ test('the home page never redirects, whatever a client sends with it', function 
         ->assertOk()
         ->assertInertia(fn (AssertableInertia $page) => $page->component('SongChecker'));
 });
+
+test('the home page links the PWA manifest and paints the splash background before CSS loads', function () {
+    $this->get('/')
+        ->assertOk()
+        ->assertSee('<link rel="manifest" href="'.route('laravelpwa.manifest').'">', false)
+        ->assertSee('style="background-color: #000"', false);
+
+    $this->get(route('laravelpwa.manifest'))
+        ->assertOk()
+        ->assertJsonPath('background_color', '#000');
+});

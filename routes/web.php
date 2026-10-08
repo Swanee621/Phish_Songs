@@ -24,5 +24,7 @@ Route::prefix('data')->name('data.')->group(function () {
         ->where('slug', '[a-z0-9-]+')
         ->where('tour', '[0-9]+')
         ->name('song-tour-performances');
+    Route::get('/search-index', [AppController::class, 'searchIndex'])->name('search-index');
+    Route::get('/search', [AppController::class, 'search'])->name('search');
     Route::get('/live', [AppController::class, 'liveStatus'])->name('live');
 });

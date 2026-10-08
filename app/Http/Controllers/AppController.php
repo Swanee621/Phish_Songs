@@ -64,6 +64,16 @@ class AppController extends Controller
         return response()->json(['data' => $repository->songs()]);
     }
 
+    public function searchIndex(PhishNetRepository $repository): JsonResponse
+    {
+        return response()->json(['data' => $repository->searchIndex()]);
+    }
+
+    public function search(Request $request, PhishNetRepository $repository): JsonResponse
+    {
+        return response()->json(['data' => $repository->search((string) $request->query('q', ''))]);
+    }
+
     /**
      * One page of the most recent performances of a song, which the song dialog
      * shows underneath the performances from the tour on screen and extends as

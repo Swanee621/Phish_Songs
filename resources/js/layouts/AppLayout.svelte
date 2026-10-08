@@ -6,6 +6,7 @@
     import type { Snippet } from 'svelte';
     import AppSidebar from '@/components/AppSidebar.svelte';
     import ScrollingText from '@/components/ScrollingText.svelte';
+    import SearchBox from '@/components/SearchBox.svelte';
     import { sharedLiveStatus } from '@/lib/live-poll.svelte';
     import { sidebar } from '@/lib/sidebar.svelte';
 
@@ -88,6 +89,7 @@
                         </div>
                     {/if}
                 </div>
+                <SearchBox />
             </header>
 
             {@render children?.()}

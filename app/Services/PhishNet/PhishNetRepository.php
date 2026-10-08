@@ -263,6 +263,88 @@ class PhishNetRepository
         $this->bumpVersion('songs');
     }
 
+    /**
+     * Free-text lookup across the catalog and the shows, for the search box in
+     * the top bar. Songs match on name or original artist; shows on date,
+     * venue, city, state or the billed artist. Uncached: it is keyed on
+     * arbitrary user input, and every query is a short indexed-ish LIKE.
+     *
+     * @return array{songs: array<int, array<string, mixed>>, shows: array<int, array<string, mixed>>}
+     */
+    public function search(string $term, int $limit = 8): array
+    {
+        $term = trim($term);
+
+        if (mb_strlen($term) < 2) {
+            return ['songs' => [], 'shows' => []];
+        }
+
+        $like = '%'.addcslashes($term, '\\%_').'%';
+
+        // Accept US-style dates (7/4/2023) alongside ISO ones.
+        $isoDate = preg_match('#^(\d{1,2})/(\d{1,2})/(\d{4})$#', $term, $m)
+            ? sprintf('%04d-%02d-%02d', $m[3], $m[1], $m[2])
+            : null;
+
+        $songs = DB::table('songs')
+            ->select(['song', 'slug', 'artist', 'times_played'])
+            ->where(fn (Builder $q) => $q->where('song', 'like', $like)->orWhere('artist', 'like', $like))
+            ->orderByDesc('times_played')
+            ->limit($limit)
+            ->get();
+
+        $shows = DB::table('shows')
+            ->leftJoin('venues', 'venues.venueid', '=', 'shows.venueid')
+            ->select(['shows.showdate', 'shows.artist_name', 'venues.venuename', 'venues.city', 'venues.state', 'venues.country'])
+            ->where(fn (Builder $q) => $q
+                ->when($isoDate, fn (Builder $q) => $q->orWhere('shows.showdate', $isoDate))
+                ->orWhere('shows.showdate', 'like', $like)
+                ->orWhere('venues.venuename', 'like', $like)
+                ->orWhere('venues.city', 'like', $like)
+                ->orWhere('venues.state', 'like', $like)
+                ->orWhere('shows.artist_name', 'like', $like))
+            ->orderByDesc('shows.showdate')
+            ->limit($limit * 2)
+            ->get();
+
+        return [
+            'songs' => $songs->map(fn ($row) => (array) $row)->all(),
+            'shows' => $shows->map(fn ($row) => (array) $row)->all(),
+        ];
+    }
+
+    /**
+     * A compact record per show (date, venue, place, billed artist and the
+     * slugs of every song played), which the browser fuzzy-searches itself so
+     * the song grid can narrow per keystroke to what a venue or date played.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function searchIndex(): array
+    {
+        return $this->cached('shows', 'search-index', function () {
+            $slugsByShow = DB::table('setlist_entries')
+                ->orderBy('showid')
+                ->get(['showid', 'slug'])
+                ->groupBy('showid')
+                ->map(fn ($rows) => $rows->pluck('slug')->unique()->values()->all());
+
+            return DB::table('shows')
+                ->leftJoin('venues', 'venues.venueid', '=', 'shows.venueid')
+                ->orderByDesc('shows.showdate')
+                ->get(['shows.showid', 'shows.showdate', 'shows.artist_name', 'venues.venuename', 'venues.city', 'venues.state'])
+                ->map(fn ($show) => [
+                    'date' => $show->showdate,
+                    'venue' => $show->venuename,
+                    'city' => $show->city,
+                    'state' => $show->state,
+                    'artist' => $show->artist_name,
+                    'slugs' => $slugsByShow->get($show->showid, []),
+                ])
+                ->all();
+        });
+    }
+
     protected function setlistQuery(): Builder
     {
         return DB::table('setlist_entries')

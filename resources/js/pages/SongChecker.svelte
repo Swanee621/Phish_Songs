@@ -8,6 +8,7 @@
     import {
         setlistsForYear,
         showYears,
+        searchIndex as searchIndexRoute,
         songs as songsRoute,
     } from '@/actions/App/Http/Controllers/AppController';
     import AppHead from '@/components/AppHead.svelte';
@@ -16,6 +17,12 @@
     import { createScrollMemory, lastVisit, toPath } from '@/lib/last-visit';
     import { createLivePoll, formatCountdown } from '@/lib/live-poll.svelte';
     import { readPrefsCookie, writePrefsCookie } from '@/lib/prefs-cookie';
+    import {
+        createShowSearcher,
+        createSongSearcher,
+        searchState,
+    } from '@/lib/search.svelte';
+    import type { SearchShow } from '@/lib/search.svelte';
     import type { SetlistRow, ShowYear, Song } from '@/types/phishnet';
 
     const BADGE_CLASSES =
@@ -48,7 +55,7 @@
                 : 'bg-secondary text-secondary-foreground'
         }`;
 
-    type ViewMode = 'played' | 'not-played';
+    type ViewMode = 'all' | 'played' | 'not-played';
 
     type Tour = {
         tourid: number;
@@ -110,7 +117,9 @@
             : true,
     );
     let viewMode = $state<ViewMode>(
-        savedPrefs?.viewMode === 'played' ? 'played' : 'not-played',
+        savedPrefs?.viewMode === 'played' || savedPrefs?.viewMode === 'all'
+            ? savedPrefs.viewMode
+            : 'not-played',
     );
 
     type StatShown = 'gap' | 'play-count' | 'tour-plays' | 'debut-year' | null;
@@ -188,6 +197,10 @@
         {},
     );
     const songsHttp = useHttp<Record<string, never>, { data: Song[] }>({});
+    const searchIndexHttp = useHttp<
+        Record<string, never>,
+        { data: SearchShow[] }
+    >({});
     const refreshHttp = useHttp<Record<string, never>, { data: SetlistRow[] }>(
         {},
     );
@@ -470,6 +483,62 @@
             : isoDateFromDay(debutToValue),
     );
 
+    /*
+     * Top-bar search. The show index (venue, place, artist, date and the songs
+     * played) is fetched the first time something is typed, then fuzzy-searched
+     * in the browser. A song stays on the grid if its own name matches, or if it
+     * was played at any show that matches — so a venue narrows the grid to what
+     * was played there.
+     */
+    const MAX_MATCHED_SHOWS = 400;
+    let searchIndex = $state<SearchShow[] | null>(null);
+    let searchIndexRequested = false;
+
+    const searchTerm = $derived(searchState.query.trim());
+
+    $effect(() => {
+        if (searchTerm.length < 2 || searchIndexRequested) {
+            return;
+        }
+
+        searchIndexRequested = true;
+        searchIndexHttp.get(searchIndexRoute.url(), {
+            onSuccess: (response) => (searchIndex = response.data),
+            onError: () => (searchIndexRequested = false),
+        });
+    });
+
+    const searchShows = $derived(
+        searchIndex ? createShowSearcher(searchIndex) : null,
+    );
+    const searchSongs = $derived(
+        allSongs ? createSongSearcher(allSongs) : null,
+    );
+
+    /** Null when no search is active, so every list is left untouched. */
+    const searchSlugs = $derived.by(() => {
+        if (searchTerm.length < 2) {
+            return null;
+        }
+
+        const slugs = new SvelteSet<string>();
+
+        for (const song of searchSongs?.(searchTerm) ?? []) {
+            slugs.add(song.slug);
+        }
+
+        for (const show of (searchShows?.(searchTerm) ?? []).slice(
+            0,
+            MAX_MATCHED_SHOWS,
+        )) {
+            for (const slug of show.slugs) {
+                slugs.add(slug);
+            }
+        }
+
+        return slugs;
+    });
+
     /**
      * The played list honours the play-count and debut-range sliders too, via
      * each song's catalog entry. A song the catalog has not loaded (or does not
@@ -477,10 +546,11 @@
      */
     const playedAlphabetical = $derived(
         songCounts
+            .filter((row) => searchSlugs === null || searchSlugs.has(row.slug))
             .filter((row) => {
                 const catalogEntry = catalogBySlug.get(row.slug);
 
-                if (!catalogEntry) {
+                if (!catalogEntry || searchSlugs !== null) {
                     return true;
                 }
 
@@ -515,16 +585,50 @@
         return allSongs
             .filter(
                 (song) =>
-                    (!onlyPhishSongs || song.artist === 'Phish') &&
-                    song.times_played >= minTimesPlayed &&
-                    (minGap === 0 || song.gap >= minGap) &&
-                    (debutFromDate === null || song.debut >= debutFromDate) &&
-                    (debutToDate === null || song.debut <= debutToDate) &&
+                    (searchSlugs !== null ||
+                        ((!onlyPhishSongs || song.artist === 'Phish') &&
+                            song.times_played >= minTimesPlayed &&
+                            (minGap === 0 || song.gap >= minGap) &&
+                            (debutFromDate === null ||
+                                song.debut >= debutFromDate) &&
+                            (debutToDate === null ||
+                                song.debut <= debutToDate))) &&
                     !playedSlugs.has(song.slug) &&
-                    !excludedSet.has(song.slug),
+                    !excludedSet.has(song.slug) &&
+                    (searchSlugs === null || searchSlugs.has(song.slug)),
             )
             .sort((a, b) => a.song.localeCompare(b.song));
     });
+
+    /**
+     * Every catalog song passing the sliders, played this tour or not. Played
+     * ones keep the played list's full-strength text; the rest are muted the
+     * way the not-played list shows them.
+     */
+    const allSorted = $derived.by(() => {
+        if (!allSongs) {
+            return [];
+        }
+
+        return allSongs
+            .filter(
+                (song) =>
+                    (searchSlugs !== null ||
+                        ((!onlyPhishSongs || song.artist === 'Phish') &&
+                            song.times_played >= minTimesPlayed &&
+                            (debutFromDate === null ||
+                                song.debut >= debutFromDate) &&
+                            (debutToDate === null ||
+                                song.debut <= debutToDate))) &&
+                    !excludedSet.has(song.slug) &&
+                    (searchSlugs === null || searchSlugs.has(song.slug)),
+            )
+            .sort((a, b) => a.song.localeCompare(b.song));
+    });
+
+    const tourCountBySlug = $derived(
+        new Map(songCounts.map((row) => [row.slug, row.count])),
+    );
 
     const dialogCatalogEntry = $derived(
         allSongs?.find((song) => song.slug === dialogSlug) ?? null,
@@ -809,7 +913,7 @@
     // "Tour Plays" only exists for the played list, so fall back to Gap when the
     // user switches to the not-played view rather than leaving it selected.
     $effect(() => {
-        if (viewMode !== 'played' && statShown === 'tour-plays') {
+        if (viewMode === 'not-played' && statShown === 'tour-plays') {
             statShown = 'play-count';
         }
     });
@@ -952,6 +1056,18 @@
                     >
                         <button
                             type="button"
+                            onclick={() => (viewMode = 'all')}
+                            class={[
+                                'flex-1 rounded px-4 py-2.5 text-sm font-medium transition-colors md:flex-none md:px-3 md:py-1 md:text-xs',
+                                viewMode === 'all'
+                                    ? 'bg-primary text-primary-foreground'
+                                    : 'text-muted-foreground hover:text-foreground',
+                            ]}
+                        >
+                            All
+                        </button>
+                        <button
+                            type="button"
                             onclick={() => (viewMode = 'played')}
                             class={[
                                 'flex-1 rounded px-4 py-2.5 text-sm font-medium transition-colors md:flex-none md:px-3 md:py-1 md:text-xs',
@@ -980,7 +1096,7 @@
                     <div
                         class="flex w-full rounded-md border p-0.5 md:inline-flex md:w-auto"
                     >
-                        {#if viewMode === 'played'}
+                        {#if viewMode !== 'not-played'}
                             <button
                                 type="button"
                                 onclick={() => (statShown = 'tour-plays')}
@@ -1180,6 +1296,67 @@
                     {:else}
                         <p class="mt-3 text-sm text-muted-foreground">
                             No Phish songs found for this tour.
+                        </p>
+                    {/if}
+                {:else if viewMode === 'all'}
+                    {#if allSongs}
+                        <div class="mt-3 flex flex-col gap-3">
+                            {@render playCountSlider()}
+                            {@render debutRangeSlider()}
+                        </div>
+                        <p class="mt-3 text-sm text-muted-foreground">
+                            {allSorted.length} song{allSorted.length !== 1
+                                ? 's'
+                                : ''}
+                        </p>
+                        <div
+                            class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
+                        >
+                            {#each allSorted as song (song.slug)}
+                                <button
+                                    type="button"
+                                    onclick={() => openSongDialog(song.slug)}
+                                    class="flex items-baseline cursor-pointer ring-1 ring-slate-500/10 justify-between gap-2 rounded p-3 text-left text-base hover:bg-accent {liveClasses(
+                                        song.slug,
+                                    ) ||
+                                        (tourCountBySlug.has(song.slug)
+                                            ? 'hover:text-primary'
+                                            : 'text-muted-foreground')}"
+                                >
+                                    <span class="truncate">{song.song}</span>
+                                    {#if statShown === 'tour-plays'}
+                                        <span
+                                            class="shrink-0 text-center text-xs font-medium ring-1 ring-sky-500/30 text-sky-400/60 rounded-4xl w-[18%] py-0.5"
+                                        >
+                                            {tourCountBySlug.get(song.slug) ??
+                                                0}
+                                        </span>
+                                    {:else if statShown === 'play-count'}
+                                        <span
+                                            class="shrink-0 text-center text-xs font-medium ring-1 ring-fuchsia-500/30 text-fuchsia-500/60 rounded-4xl w-[18%] py-0.5"
+                                        >
+                                            {song.times_played}
+                                        </span>
+                                    {:else if statShown === 'gap'}
+                                        <span
+                                            class="shrink-0 text-center text-xs font-medium ring-1 ring-green-800/30 text-green-400/60 rounded-4xl w-[18%] py-0.5"
+                                        >
+                                            {liveGapBySlug.get(song.slug) ??
+                                                song.gap}
+                                        </span>
+                                    {:else if statShown === 'debut-year'}
+                                        <span
+                                            class="shrink-0 text-center text-xs font-medium ring-1 ring-slate-500/30 rounded-4xl w-[18%] py-0.5"
+                                        >
+                                            {song.debut.slice(0, 4) || '—'}
+                                        </span>
+                                    {/if}
+                                </button>
+                            {/each}
+                        </div>
+                    {:else}
+                        <p class="mt-3 text-sm text-muted-foreground">
+                            Loading full song catalog…
                         </p>
                     {/if}
                 {:else if allSongsLoading}

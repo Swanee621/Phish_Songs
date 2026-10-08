@@ -529,6 +529,7 @@
                 }
 
                 return (
+                    (!onlyPhishSongs || catalogEntry.artist === 'Phish') &&
                     catalogEntry.times_played >= minTimesPlayed &&
                     (debutFromDate === null ||
                         catalogEntry.debut >= debutFromDate) &&
@@ -1213,11 +1214,41 @@
                     {/if}
                 {/snippet}
 
+                {#snippet onlyPhishSongsToggle()}
+                    <div class="flex items-center gap-2 pb-6 pt-4">
+                        <button
+                            type="button"
+                            id="only-phish-songs"
+                            role="checkbox"
+                            aria-checked={onlyPhishSongs}
+                            onclick={() => (onlyPhishSongs = !onlyPhishSongs)}
+                            class="size-4 shrink-0 rounded-lg border border-input shadow-xs transition-shadow outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 {onlyPhishSongs
+                                ? 'border-primary bg-primary text-primary-foreground'
+                                : ''}"
+                        >
+                            {#if onlyPhishSongs}
+                                <div
+                                    class="grid place-content-center text-current"
+                                >
+                                    <Check class="size-3.5" />
+                                </div>
+                            {/if}
+                        </button>
+                        <label
+                            for="only-phish-songs"
+                            class="text-sm leading-none font-normal text-muted-foreground md:text-xs"
+                        >
+                            Only Phish Songs
+                        </label>
+                    </div>
+                {/snippet}
+
                 {#if viewMode === 'played'}
                     {#if allSongs}
                         <div class="mt-3 flex flex-col gap-3">
                             {@render playCountSlider()}
                             {@render debutRangeSlider()}
+                            {@render onlyPhishSongsToggle()}
                         </div>
                     {/if}
                     {#if playedAlphabetical.length}
@@ -1277,6 +1308,7 @@
                         <div class="mt-3 flex flex-col gap-3">
                             {@render playCountSlider()}
                             {@render debutRangeSlider()}
+                            {@render onlyPhishSongsToggle()}
                         </div>
                         <p class="mt-3 text-sm text-muted-foreground">
                             {allSorted.length} song{allSorted.length !== 1
@@ -1366,34 +1398,7 @@
                         />
 
                         {@render debutRangeSlider()}
-
-                        <div class="flex items-center gap-2 pb-6 pt-4">
-                            <button
-                                type="button"
-                                id="only-phish-songs"
-                                role="checkbox"
-                                aria-checked={onlyPhishSongs}
-                                onclick={() =>
-                                    (onlyPhishSongs = !onlyPhishSongs)}
-                                class="size-4 shrink-0 rounded-lg border border-input shadow-xs transition-shadow outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 {onlyPhishSongs
-                                    ? 'border-primary bg-primary text-primary-foreground'
-                                    : ''}"
-                            >
-                                {#if onlyPhishSongs}
-                                    <div
-                                        class="grid place-content-center text-current"
-                                    >
-                                        <Check class="size-3.5" />
-                                    </div>
-                                {/if}
-                            </button>
-                            <label
-                                for="only-phish-songs"
-                                class="text-sm leading-none font-normal text-muted-foreground md:text-xs"
-                            >
-                                Only Phish Songs
-                            </label>
-                        </div>
+                        {@render onlyPhishSongsToggle()}
                     </div>
 
                     <div class="flex flex-col gap-2">

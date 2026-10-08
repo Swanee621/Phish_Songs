@@ -38,6 +38,15 @@ class PhishNetRepository
     protected const CACHE_TTL_SECONDS = 86400;
 
     /**
+     * Search-engine options for the top-bar search. Every typed word has to
+     * match, so "12/31/1995" finds that show rather than everything from 1995
+     * or every 31st.
+     *
+     * @var array<string, string>
+     */
+    protected const SEARCH_OPTIONS = ['matchingStrategy' => 'all'];
+
+    /**
      * Columns that reconstruct the flat, denormalized row shape the phish.net
      * setlist endpoints return, which the frontend already consumes.
      *
@@ -265,9 +274,8 @@ class PhishNetRepository
 
     /**
      * Free-text lookup across the catalog and the shows, for the search box in
-     * the top bar. Songs match on name or original artist; shows on date,
-     * venue, city, state or the billed artist. Uncached: it is keyed on
-     * arbitrary user input, and every query is a short indexed-ish LIKE.
+     * the top bar, answered by the search engine. Songs match on name or
+     * original artist; shows on date, venue, place or the billed artist.
      *
      * @return array{songs: array<int, array<string, mixed>>, shows: array<int, array<string, mixed>>}
      */
@@ -279,70 +287,58 @@ class PhishNetRepository
             return ['songs' => [], 'shows' => []];
         }
 
-        $like = '%'.addcslashes($term, '\\%_').'%';
+        $songs = Song::search($term)->options(self::SEARCH_OPTIONS)->take($limit)->get()
+            ->map(fn (Song $song) => $song->only(['song', 'slug', 'artist', 'times_played']));
 
-        // Accept US-style dates (7/4/2023) alongside ISO ones.
-        $isoDate = preg_match('#^(\d{1,2})/(\d{1,2})/(\d{4})$#', $term, $m)
-            ? sprintf('%04d-%02d-%02d', $m[3], $m[1], $m[2])
-            : null;
-
-        $songs = DB::table('songs')
-            ->select(['song', 'slug', 'artist', 'times_played'])
-            ->where(fn (Builder $q) => $q->where('song', 'like', $like)->orWhere('artist', 'like', $like))
-            ->orderByDesc('times_played')
-            ->limit($limit)
-            ->get();
-
-        $shows = DB::table('shows')
-            ->leftJoin('venues', 'venues.venueid', '=', 'shows.venueid')
-            ->select(['shows.showdate', 'shows.artist_name', 'venues.venuename', 'venues.city', 'venues.state', 'venues.country'])
-            ->where(fn (Builder $q) => $q
-                ->when($isoDate, fn (Builder $q) => $q->orWhere('shows.showdate', $isoDate))
-                ->orWhere('shows.showdate', 'like', $like)
-                ->orWhere('venues.venuename', 'like', $like)
-                ->orWhere('venues.city', 'like', $like)
-                ->orWhere('venues.state', 'like', $like)
-                ->orWhere('shows.artist_name', 'like', $like))
-            ->orderByDesc('shows.showdate')
-            ->limit($limit * 2)
-            ->get();
+        $shows = Show::search($term)
+            ->options(self::SEARCH_OPTIONS)
+            ->query(fn ($query) => $query->with('venue'))
+            ->take($limit * 2)
+            ->get()
+            ->map(fn (Show $show) => [
+                'showdate' => $show->showdate,
+                'artist_name' => $show->artist_name,
+                'venuename' => $show->venue?->venuename,
+                'city' => $show->venue?->city,
+                'state' => $show->venue?->state,
+                'country' => $show->venue?->country,
+            ]);
 
         return [
-            'songs' => $songs->map(fn ($row) => (array) $row)->all(),
-            'shows' => $shows->map(fn ($row) => (array) $row)->all(),
+            'songs' => $songs->values()->all(),
+            'shows' => $shows->values()->all(),
         ];
     }
 
     /**
-     * A compact record per show (date, venue, place, billed artist and the
-     * slugs of every song played), which the browser fuzzy-searches itself so
-     * the song grid can narrow per keystroke to what a venue or date played.
+     * The slugs the song grid narrows to while something is typed in the top
+     * bar: every song whose own name matches, plus every song played at a
+     * matching show — so a venue or date narrows the grid to what was played
+     * there.
      *
-     * @return array<int, array<string, mixed>>
+     * @return array<int, string>
      */
-    public function searchIndex(): array
+    public function searchSlugs(string $term, int $songLimit = 200, int $showLimit = 400): array
     {
-        return $this->cached('shows', 'search-index', function () {
-            $slugsByShow = DB::table('setlist_entries')
-                ->orderBy('showid')
-                ->get(['showid', 'slug'])
-                ->groupBy('showid')
-                ->map(fn ($rows) => $rows->pluck('slug')->unique()->values()->all());
+        $term = trim($term);
 
-            return DB::table('shows')
-                ->leftJoin('venues', 'venues.venueid', '=', 'shows.venueid')
-                ->orderByDesc('shows.showdate')
-                ->get(['shows.showid', 'shows.showdate', 'shows.artist_name', 'venues.venuename', 'venues.city', 'venues.state'])
-                ->map(fn ($show) => [
-                    'date' => $show->showdate,
-                    'venue' => $show->venuename,
-                    'city' => $show->city,
-                    'state' => $show->state,
-                    'artist' => $show->artist_name,
-                    'slugs' => $slugsByShow->get($show->showid, []),
-                ])
-                ->all();
-        });
+        if (mb_strlen($term) < 2) {
+            return [];
+        }
+
+        $songIds = Song::search($term)->options(self::SEARCH_OPTIONS)->take($songLimit)->keys();
+        $showIds = Show::search($term)->options(self::SEARCH_OPTIONS)->take($showLimit)->keys();
+
+        $songSlugs = $songIds->isEmpty() ? collect() : DB::table('songs')
+            ->whereIn('songid', $songIds->all())
+            ->pluck('slug');
+
+        $playedSlugs = $showIds->isEmpty() ? collect() : DB::table('setlist_entries')
+            ->whereIn('showid', $showIds->all())
+            ->distinct()
+            ->pluck('slug');
+
+        return $songSlugs->merge($playedSlugs)->unique()->values()->all();
     }
 
     protected function setlistQuery(): Builder

@@ -64,9 +64,12 @@ class AppController extends Controller
         return response()->json(['data' => $repository->songs()]);
     }
 
-    public function searchIndex(PhishNetRepository $repository): JsonResponse
+    /**
+     * The song slugs the song grid narrows to for a top-bar search term.
+     */
+    public function searchSlugs(Request $request, PhishNetRepository $repository): JsonResponse
     {
-        return response()->json(['data' => $repository->searchIndex()]);
+        return response()->json(['data' => $repository->searchSlugs((string) $request->query('q', ''))]);
     }
 
     public function search(Request $request, PhishNetRepository $repository): JsonResponse

@@ -8,7 +8,7 @@
     import {
         setlistsForYear,
         showYears,
-        searchIndex as searchIndexRoute,
+        searchSlugs as searchSlugsRoute,
         songs as songsRoute,
     } from '@/actions/App/Http/Controllers/AppController';
     import AppHead from '@/components/AppHead.svelte';
@@ -17,12 +17,7 @@
     import { createScrollMemory, lastVisit, toPath } from '@/lib/last-visit';
     import { createLivePoll, formatCountdown } from '@/lib/live-poll.svelte';
     import { readPrefsCookie, writePrefsCookie } from '@/lib/prefs-cookie';
-    import {
-        createShowSearcher,
-        createSongSearcher,
-        searchState,
-    } from '@/lib/search.svelte';
-    import type { SearchShow } from '@/lib/search.svelte';
+    import { searchState } from '@/lib/search.svelte';
     import type { SetlistRow, ShowYear, Song } from '@/types/phishnet';
 
     const BADGE_CLASSES =
@@ -197,10 +192,9 @@
         {},
     );
     const songsHttp = useHttp<Record<string, never>, { data: Song[] }>({});
-    const searchIndexHttp = useHttp<
-        Record<string, never>,
-        { data: SearchShow[] }
-    >({});
+    const searchSlugsHttp = useHttp<Record<string, never>, { data: string[] }>(
+        {},
+    );
     const refreshHttp = useHttp<Record<string, never>, { data: SetlistRow[] }>(
         {},
     );
@@ -484,59 +478,39 @@
     );
 
     /*
-     * Top-bar search. The show index (venue, place, artist, date and the songs
-     * played) is fetched the first time something is typed, then fuzzy-searched
-     * in the browser. A song stays on the grid if its own name matches, or if it
-     * was played at any show that matches — so a venue narrows the grid to what
-     * was played there.
+     * Top-bar search, answered by the server's search engine. A song stays on
+     * the grid if its own name matches, or if it was played at any show that
+     * matches — so a venue narrows the grid to what was played there. The
+     * previous answer stays up while the next one is in flight.
      */
-    const MAX_MATCHED_SHOWS = 400;
-    let searchIndex = $state<SearchShow[] | null>(null);
-    let searchIndexRequested = false;
+    const SEARCH_DEBOUNCE_MS = 200;
+
+    /** Null when no search is active, so every list is left untouched. */
+    let searchSlugs = $state<Set<string> | null>(null);
 
     const searchTerm = $derived(searchState.query.trim());
 
     $effect(() => {
-        if (searchTerm.length < 2 || searchIndexRequested) {
+        const term = searchTerm;
+
+        if (term.length < 2) {
+            searchSlugs = null;
+
             return;
         }
 
-        searchIndexRequested = true;
-        searchIndexHttp.get(searchIndexRoute.url(), {
-            onSuccess: (response) => (searchIndex = response.data),
-            onError: () => (searchIndexRequested = false),
-        });
-    });
+        const timer = setTimeout(() => {
+            searchSlugsHttp.get(searchSlugsRoute.url({ query: { q: term } }), {
+                onSuccess: (response) => {
+                    // Ignore a slow answer to a term that has been typed over.
+                    if (term === searchState.query.trim()) {
+                        searchSlugs = new Set(response.data);
+                    }
+                },
+            });
+        }, SEARCH_DEBOUNCE_MS);
 
-    const searchShows = $derived(
-        searchIndex ? createShowSearcher(searchIndex) : null,
-    );
-    const searchSongs = $derived(
-        allSongs ? createSongSearcher(allSongs) : null,
-    );
-
-    /** Null when no search is active, so every list is left untouched. */
-    const searchSlugs = $derived.by(() => {
-        if (searchTerm.length < 2) {
-            return null;
-        }
-
-        const slugs = new SvelteSet<string>();
-
-        for (const song of searchSongs?.(searchTerm) ?? []) {
-            slugs.add(song.slug);
-        }
-
-        for (const show of (searchShows?.(searchTerm) ?? []).slice(
-            0,
-            MAX_MATCHED_SHOWS,
-        )) {
-            for (const slug of show.slugs) {
-                slugs.add(slug);
-            }
-        }
-
-        return slugs;
+        return () => clearTimeout(timer);
     });
 
     /**

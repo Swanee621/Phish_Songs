@@ -8,6 +8,7 @@ use App\Models\Show;
 use App\Models\Song;
 use App\Models\Tour;
 use App\Models\Venue;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -120,6 +121,7 @@ class PhishNetSynchronizer
         return $this->whenChanged("setlists.year.{$year}", $rows, function () use ($year, $rows) {
             $this->importSetlistYear($year, $rows);
             $this->repository->forgetYear($year);
+            $this->indexForSearch(Show::query()->where('showyear', $year)->get());
         });
     }
 
@@ -227,6 +229,7 @@ class PhishNetSynchronizer
         return $this->whenChanged("setlists.showdate.{$showdate}", $rows, function () use ($showdate, $rows) {
             $this->importSetlistShowdate($rows);
             $this->repository->forgetYear((int) substr($showdate, 0, 4));
+            $this->indexForSearch(Show::query()->where('showdate', $showdate)->get());
         });
     }
 
@@ -250,6 +253,7 @@ class PhishNetSynchronizer
         $this->whenChanged("setlists.showdate.{$showdate}", $rows, function () use ($showdate, $rows) {
             $this->importSetlistShowdate($rows);
             $this->repository->forgetYear((int) substr($showdate, 0, 4));
+            $this->indexForSearch(Show::query()->where('showdate', $showdate)->get());
         });
 
         return ! $this->setlistHasEnded($rows);
@@ -265,6 +269,7 @@ class PhishNetSynchronizer
         return $this->whenChanged('songs', $rows, function () use ($rows) {
             $this->importSongs($rows);
             $this->repository->forgetSongs();
+            Song::makeAllSearchable();
         });
     }
 
@@ -277,6 +282,7 @@ class PhishNetSynchronizer
 
         return $this->whenChanged('venues', $rows, function () use ($rows) {
             $this->importVenues($rows);
+            Show::makeAllSearchable();
         });
     }
 
@@ -759,6 +765,35 @@ class PhishNetSynchronizer
 
     /*
     |--------------------------------------------------------------------------
+    | Search index: kept in step by hand
+    |--------------------------------------------------------------------------
+    |
+    | Imports write through bulk upserts and deletes, which skip the model
+    | events Scout listens for, so the sync pushes changes to the index itself.
+    */
+
+    /**
+     * @template TModel of Show|Song
+     *
+     * @param  EloquentCollection<int, TModel>  $models
+     */
+    protected function indexForSearch(EloquentCollection $models): void
+    {
+        $models->first()?->queueMakeSearchable($models);
+    }
+
+    /**
+     * @template TModel of Show|Song
+     *
+     * @param  EloquentCollection<int, TModel>  $models
+     */
+    protected function removeFromSearch(EloquentCollection $models): void
+    {
+        $models->first()?->queueRemoveFromSearch($models);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | Importing: raw payloads into the database
     |--------------------------------------------------------------------------
     */
@@ -785,6 +820,7 @@ class PhishNetSynchronizer
             Show::query()
                 ->where('showyear', $year)
                 ->when($showIds !== [], fn ($query) => $query->whereNotIn('showid', $showIds))
+                ->tap(fn ($query) => $this->removeFromSearch($query->clone()->get()))
                 ->delete();
 
             SetlistEntry::query()
@@ -859,7 +895,9 @@ class PhishNetSynchronizer
                 update: ['song', 'slug', 'artist', 'times_played', 'debut', 'last_played', 'gap'],
             ));
 
-            Song::query()->whereNotIn('songid', $songs->pluck('songid')->all())->delete();
+            Song::query()->whereNotIn('songid', $songs->pluck('songid')->all())
+                ->tap(fn ($query) => $this->removeFromSearch($query->clone()->get()))
+                ->delete();
         });
     }
 

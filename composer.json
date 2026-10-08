@@ -10,13 +10,16 @@
     "license": "MIT",
     "require": {
         "php": "^8.3",
+        "http-interop/http-factory-guzzle": "^1.2",
         "inertiajs/inertia-laravel": "^3.0",
         "laravel/chisel": "^0.1.0",
         "laravel/fortify": "^1.37.2",
         "laravel/framework": "^13.17",
         "laravel/nightwatch": "^1.28",
+        "laravel/scout": "^11.9",
         "laravel/tinker": "^3.0",
         "laravel/wayfinder": "^0.1.14",
+        "meilisearch/meilisearch-php": "^1.17",
         "silviolleite/laravelpwa": "^2.0"
     },
     "require-dev": {
@@ -55,7 +58,7 @@
         ],
         "dev": [
             "Composer\\Config::disableProcessTimeout",
-            "npx concurrently -c \"#93c5fd,#c4b5fd,#fdba74,#86efac\" \"php artisan serve\" \"php artisan queue:listen --tries=1\" \"npm run dev\" \"php artisan schedule:work\" \"php artisan phish:watch\" --names='server,queue,vite,cron,phish'"
+            "npx concurrently -c \"#93c5fd,#c4b5fd,#fdba74,#86efac\" \"php artisan serve\"  \"cd _meilisearch && meilisearch --master-key=n-Q535Oye1LVKmAKXPh7gBh2nJkvWa9OA_hP1WkoNVo \" \"php artisan queue:listen --tries=1\" \"npm run dev\" \"php artisan schedule:work\" \"php artisan phish:watch\" --names='server,meili,queue,vite,cron,phish'"
         ],
         "lint": [
             "pint --parallel"

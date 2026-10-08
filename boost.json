@@ -12,6 +12,7 @@
         "fortify-development",
         "laravel-best-practices",
         "configure-nightwatch",
+        "scout-development",
         "wayfinder-development",
         "pest-testing",
         "inertia-svelte-development",

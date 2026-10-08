@@ -42,20 +42,20 @@
             <header
                 class="sticky top-0 z-20 flex min-h-16 shrink-0 items-center gap-1 border-b border-sidebar-border/70 bg-background pr-4 pl-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:min-h-12 md:px-4"
             >
-                <div class="flex min-w-0 flex-1 items-center gap-1">
-                    <button
-                        type="button"
-                        class="-ml-1 inline-flex h-14 w-14 shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none md:h-12 md:w-12"
-                        onclick={() => sidebar.toggle()}
-                    >
-                        {#if sidebar.isMobile || sidebar.collapsed}
-                            <PanelLeftOpen class="size-6" />
-                        {:else}
-                            <PanelLeftClose class="size-6" />
-                        {/if}
-                        <span class="sr-only">Toggle sidebar</span>
-                    </button>
+                <button
+                    type="button"
+                    class="-ml-1 inline-flex h-14 w-14 shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none md:h-12 md:w-12"
+                    onclick={() => sidebar.toggle()}
+                >
+                    {#if sidebar.isMobile || sidebar.collapsed}
+                        <PanelLeftOpen class="size-6" />
+                    {:else}
+                        <PanelLeftClose class="size-6" />
+                    {/if}
+                    <span class="sr-only">Toggle sidebar</span>
+                </button>
 
+                <div class="flex min-w-0 flex-1 items-center gap-1">
                     <!--
                         What is on stage right now, strung across segues by the
                         server. Only present while a show is being played.

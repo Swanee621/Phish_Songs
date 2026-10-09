@@ -29,7 +29,6 @@
      */
     const filtersPage = $derived(page.url.split('?')[0] === '/');
 
-    let query = $state(searchState.query);
     let focused = $state(false);
     let songs = $state<SongHit[]>([]);
     let shows = $state<ShowHit[]>([]);
@@ -44,12 +43,8 @@
         { data: { songs: SongHit[]; shows: ShowHit[] } }
     >({});
 
-    const trimmed = $derived(query.trim());
+    const trimmed = $derived(searchState.query.trim());
     const showPanel = $derived(!filtersPage && focused && trimmed.length >= 2);
-
-    $effect(() => {
-        searchState.query = query;
-    });
 
     $effect(() => {
         const term = trimmed;
@@ -66,7 +61,7 @@
             http.get(search.url({ query: { q: term } }), {
                 onSuccess: (response) => {
                     // Ignore a slow answer to a term that has been typed over.
-                    if (term !== query.trim()) {
+                    if (term !== searchState.query.trim()) {
                         return;
                     }
 
@@ -95,7 +90,7 @@
             showdate: hit.showdate,
         });
         focused = false;
-        query = '';
+        searchState.query = '';
         router.visit('/setlist-browser', { preserveState: false });
     }
 
@@ -109,7 +104,7 @@
     />
     <input
         type="search"
-        bind:value={query}
+        bind:value={searchState.query}
         onfocus={() => (focused = true)}
         onblur={() => setTimeout(() => (focused = false), 150)}
         onkeydown={(event) => event.key === 'Escape' && (focused = false)}

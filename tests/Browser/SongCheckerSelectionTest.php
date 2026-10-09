@@ -40,7 +40,7 @@ function seedTourWithSong(int $year, string|Tour $tour, string $songName, ?strin
     ]);
 }
 
-test('a second year widens the played list to both years', function () {
+test('a picked tour narrows every selected year until it is unpicked', function () {
     $thisYear = (int) date('Y');
 
     seedTourWithSong($thisYear, 'Current Run', 'Newer Song');
@@ -52,7 +52,10 @@ test('a second year widens the played list to both years', function () {
         ->assertSee('Newer Song')
         ->assertDontSee('Older Song')
         ->click((string) ($thisYear - 1))
-        ->assertSee('2 shows')
+        ->assertSee('Newer Song')
+        ->assertDontSee('Older Song')
+        ->click("Current Run ({$thisYear})")
+        ->assertSee('2 Shows (2 years selected)')
         ->assertSee('2 songs played')
         ->assertDontSee('Previous tour')
         ->assertSee('Newer Song')
@@ -113,5 +116,79 @@ test('reset filters returns to the most recent tour', function () {
         ->assertDontSee('Every year')
         ->assertSee('Current Run')
         ->assertSee('Newer Song')
+        ->assertNoJavaScriptErrors();
+});
+
+test('with no years picked the played status is locked to all and tour plays is hidden', function () {
+    $thisYear = (int) date('Y');
+
+    seedTourWithSong($thisYear, 'Current Run', 'Newer Song');
+    Song::factory()->create(['song' => 'Never Played Song', 'times_played' => 0]);
+
+    $page = visit('/');
+
+    $page->click('Tour Plays')
+        ->click('Not Played')
+        ->click((string) $thisYear)
+        ->assertSee('Every year')
+        ->assertSee('Pick a year to choose')
+        ->assertAttribute('[aria-label="Played status"]', 'aria-disabled', 'true')
+        ->assertSee('Newer Song')
+        ->assertSee('Never Played Song')
+        ->assertDontSee('Tour Plays')
+        ->click((string) $thisYear)
+        ->assertDontSee('Pick a year to choose')
+        ->assertSee('Never Played Song')
+        ->assertDontSee('Newer Song')
+        ->assertNoJavaScriptErrors();
+});
+
+test('the filters still apply to search results', function () {
+    $thisYear = (int) date('Y');
+
+    seedTourWithSong($thisYear, 'Current Run', 'Searchable Common');
+    Song::factory()->create(['song' => 'Searchable Rare', 'times_played' => 1]);
+
+    $page = visit('/');
+
+    $page->click((string) $thisYear)
+        ->assertSee('Searchable Rare')
+        ->script(<<<'JS'
+            const slider = document.getElementById('min-times-played');
+            slider.value = '10';
+            slider.dispatchEvent(new Event('input', { bubbles: true }));
+        JS);
+
+    $page->fill('[aria-label="Search"]', 'Searchable')
+        ->assertSee('Searchable Common')
+        ->assertDontSee('Searchable Rare')
+        ->assertNoJavaScriptErrors();
+});
+
+test('the heading counts shows per year and picked tours', function () {
+    $thisYear = (int) date('Y');
+
+    seedTourWithSong($thisYear, 'Spring Run', 'Spring Song', "{$thisYear}-04-01");
+    seedTourWithSong($thisYear, 'Summer Run', 'Summer Song', "{$thisYear}-07-01");
+    seedTourWithSong($thisYear, 'Fall Run', 'Fall Song', "{$thisYear}-10-01");
+
+    $page = visit('/');
+
+    $page->click('Fall Run')
+        ->click('Spring Run')
+        ->assertSee('2 Shows (2 tours selected from 1 year)')
+        ->assertNoJavaScriptErrors();
+});
+
+test('reset filters clears the search box', function () {
+    $thisYear = (int) date('Y');
+
+    seedTourWithSong($thisYear, 'Current Run', 'Newer Song');
+
+    $page = visit('/');
+
+    $page->fill('[aria-label="Search"]', 'Newer')
+        ->click('Reset filters')
+        ->assertValue('[aria-label="Search"]', '')
         ->assertNoJavaScriptErrors();
 });

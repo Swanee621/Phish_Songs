@@ -307,6 +307,15 @@
     /** No years picked: the catalog stands in for every show ever played. */
     const isEverything = $derived(selectedYears.size === 0);
 
+    /**
+     * Played / Not Played only mean something against a set of shows, so with
+     * no years picked the page lists all songs. The picked mode is kept, and
+     * comes back as soon as a year is.
+     */
+    const effectiveViewMode = $derived<ViewMode>(
+        isEverything ? 'all' : viewMode,
+    );
+
     const sortedSelectedYears = $derived(
         [...selectedYears].sort((a, b) => a - b),
     );
@@ -322,20 +331,16 @@
     );
 
     /**
-     * The tours actually in play. A year narrows to whichever of its tours are
-     * picked, or keeps all of them when none are — so picking a tour in one
-     * year never empties another.
+     * The tours actually in play: just the picked ones once any are, across
+     * every selected year, or every tour in those years when none are.
      */
-    const scopeTours = $derived(
-        sortedSelectedYears.flatMap((year) => {
-            const yearTours = buildToursForYear(year);
-            const picked = yearTours.filter((tour) =>
-                selectedTourKeys.has(tourKey(tour)),
-            );
+    const scopeTours = $derived.by(() => {
+        const picked = availableTours.filter((tour) =>
+            selectedTourKeys.has(tourKey(tour)),
+        );
 
-            return picked.length ? picked : yearTours;
-        }),
-    );
+        return picked.length ? picked : availableTours;
+    });
 
     /** The one tour in play, when there is exactly one — Previous/Next step from it. */
     const singleTour = $derived<Tour | null>(
@@ -649,8 +654,7 @@
      * each song's catalog entry. A song the catalog has not loaded (or does not
      * know) is let through rather than hidden on missing data.
      *
-     * A search sets the sliders aside, but not the Phish / Covers / Both
-     * control: that narrows search results too.
+     * A search narrows within the filters rather than setting them aside.
      */
     const playedAlphabetical = $derived(
         songCounts
@@ -662,15 +666,8 @@
                     return true;
                 }
 
-                if (!matchesSongSource(catalogEntry.artist)) {
-                    return false;
-                }
-
-                if (searchSlugs !== null) {
-                    return true;
-                }
-
                 return (
+                    matchesSongSource(catalogEntry.artist) &&
                     catalogEntry.times_played >= minTimesPlayed &&
                     (debutFromDate === null ||
                         catalogEntry.debut >= debutFromDate) &&
@@ -704,13 +701,10 @@
             .filter(
                 (song) =>
                     matchesSongSource(song.artist) &&
-                    (searchSlugs !== null ||
-                        (song.times_played >= minTimesPlayed &&
-                            (minGap === 0 || song.gap >= minGap) &&
-                            (debutFromDate === null ||
-                                song.debut >= debutFromDate) &&
-                            (debutToDate === null ||
-                                song.debut <= debutToDate))) &&
+                    song.times_played >= minTimesPlayed &&
+                    (minGap === 0 || song.gap >= minGap) &&
+                    (debutFromDate === null || song.debut >= debutFromDate) &&
+                    (debutToDate === null || song.debut <= debutToDate) &&
                     !playedSlugs.has(song.slug) &&
                     !excludedSet.has(song.slug) &&
                     (searchSlugs === null || searchSlugs.has(song.slug)),
@@ -732,12 +726,9 @@
             .filter(
                 (song) =>
                     matchesSongSource(song.artist) &&
-                    (searchSlugs !== null ||
-                        (song.times_played >= minTimesPlayed &&
-                            (debutFromDate === null ||
-                                song.debut >= debutFromDate) &&
-                            (debutToDate === null ||
-                                song.debut <= debutToDate))) &&
+                    song.times_played >= minTimesPlayed &&
+                    (debutFromDate === null || song.debut >= debutFromDate) &&
+                    (debutToDate === null || song.debut <= debutToDate) &&
                     !excludedSet.has(song.slug) &&
                     (searchSlugs === null || searchSlugs.has(song.slug)),
             )
@@ -766,7 +757,7 @@
      * played keeps the gap it broke until the highlight clears.
      */
     const songCards = $derived.by<SongCard[]>(() => {
-        if (viewMode === 'played') {
+        if (effectiveViewMode === 'played') {
             return playedAlphabetical.map((row) => {
                 const catalogEntry = catalogBySlug.get(row.slug);
 
@@ -785,15 +776,19 @@
             });
         }
 
-        return (viewMode === 'all' ? allSorted : notPlayed).map((song) => ({
-            slug: song.slug,
-            song: song.song,
-            tourPlays: tourCountBySlug.get(song.slug) ?? 0,
-            totalPlays: song.times_played,
-            gap: liveGapBySlug.get(song.slug) ?? song.gap,
-            debutYear: song.debut.slice(0, 4),
-            muted: viewMode === 'not-played' || !tourCountBySlug.has(song.slug),
-        }));
+        return (effectiveViewMode === 'all' ? allSorted : notPlayed).map(
+            (song) => ({
+                slug: song.slug,
+                song: song.song,
+                tourPlays: tourCountBySlug.get(song.slug) ?? 0,
+                totalPlays: song.times_played,
+                gap: liveGapBySlug.get(song.slug) ?? song.gap,
+                debutYear: song.debut.slice(0, 4),
+                muted:
+                    effectiveViewMode === 'not-played' ||
+                    !tourCountBySlug.has(song.slug),
+            }),
+        );
     });
 
     const VIEW_MODE_OPTIONS: { value: ViewMode; label: string }[] = [
@@ -841,11 +836,17 @@
         },
     ];
 
-    /** "Tour Plays" means nothing for songs the selected shows never played. */
+    /**
+     * "Tour Plays" means nothing for songs the selected shows never played, nor
+     * with no years picked, where it would only repeat Total Plays.
+     */
+    const hidesTourPlays = $derived(
+        isEverything || effectiveViewMode === 'not-played',
+    );
+
     const statOptions = $derived(
         STAT_OPTIONS.filter(
-            (option) =>
-                viewMode !== 'not-played' || option.value !== 'tour-plays',
+            (option) => !hidesTourPlays || option.value !== 'tour-plays',
         ),
     );
 
@@ -878,9 +879,9 @@
                   ? 'cover song'
                   : 'song';
         const suffix =
-            viewMode === 'played'
+            effectiveViewMode === 'played'
                 ? ' played'
-                : viewMode === 'not-played'
+                : effectiveViewMode === 'not-played'
                   ? ' not played'
                   : '';
 
@@ -891,11 +892,36 @@
         `${tourShows.length} show${tourShows.length !== 1 ? 's' : ''}`,
     );
 
+    const pickedTourCount = $derived(
+        availableTours.filter((tour) => selectedTourKeys.has(tourKey(tour)))
+            .length,
+    );
+
+    /** "30 Shows (3 years selected)", or "8 Shows (2 tours selected from 3 years)". */
+    const showsHeading = $derived.by(() => {
+        const shows = `${tourShows.length} Show${tourShows.length !== 1 ? 's' : ''}`;
+        const years = `${selectedYears.size} year${selectedYears.size !== 1 ? 's' : ''}`;
+
+        if (!pickedTourCount) {
+            return `${shows} (${years} selected)`;
+        }
+
+        const tours = `${pickedTourCount} tour${pickedTourCount !== 1 ? 's' : ''}`;
+
+        return `${shows} (${tours} selected from ${years})`;
+    });
+
     const dialogCatalogEntry = $derived(
         allSongs?.find((song) => song.slug === dialogSlug) ?? null,
     );
 
     /** Newest first, the way the dialog lists every other performance. */
+    /**
+     * The song dialog only calls out a tour's performances when exactly one is
+     * picked; otherwise every performance sits in the plain history list.
+     */
+    const highlightedTour = $derived(pickedTourCount === 1 ? singleTour : null);
+
     const dialogPerformances = $derived(
         [...tourRows]
             .filter((row) => row.slug === dialogSlug)
@@ -1083,6 +1109,7 @@
         minGap = DEFAULT_FILTERS.minGap;
         debutFromDay = null;
         debutToDay = null;
+        searchState.query = '';
 
         if (years.length) {
             selectLatestTour(years[years.length - 1]);
@@ -1253,10 +1280,10 @@
         }
     });
 
-    // "Tour Plays" only exists for the played list, so fall back to Gap when the
-    // user switches to the not-played view rather than leaving it selected.
+    // Fall back to Total Plays when "Tour Plays" is taken off the options,
+    // rather than leaving a hidden option selected.
     $effect(() => {
-        if (viewMode === 'not-played' && statShown === 'tour-plays') {
+        if (hidesTourPlays && statShown === 'tour-plays') {
             statShown = 'play-count';
         }
     });
@@ -1290,17 +1317,19 @@
     isActive: boolean,
     onclick: () => void,
     activeClass = 'bg-primary text-primary-foreground',
+    disabled = false,
 )}
     <button
         type="button"
         role="radio"
         aria-checked={isActive}
+        {disabled}
         {onclick}
         class={[
-            'flex-1 rounded px-4 py-2.5 text-sm font-medium transition-colors md:flex-none md:px-3 md:py-1 md:text-xs',
+            'flex-1 rounded px-4 py-2.5 text-sm font-medium transition-colors disabled:cursor-not-allowed md:flex-none md:px-3 md:py-1 md:text-xs',
             isActive
                 ? activeClass
-                : 'text-muted-foreground hover:text-foreground',
+                : 'text-muted-foreground enabled:hover:text-foreground',
         ]}
     >
         {label}
@@ -1328,7 +1357,9 @@
         <h1 class="text-2xl font-semibold">Song Checker</h1>
 
         {#if !initialLoading && yearsLoaded}
-            <div class="flex flex-col sm:flex-row w-full justify-between sm:justify-end gap-2">
+            <div
+                class="flex flex-col sm:flex-row w-full justify-between sm:justify-end gap-2"
+            >
                 <button
                     type="button"
                     onclick={resetFilters}
@@ -1430,17 +1461,26 @@
                     <h2 class={FILTER_HEADING_CLASSES}>2 · Songs</h2>
 
                     <div class="flex flex-col gap-2">
-                        {@render fieldLabel('Show songs that were')}
+                        {@render fieldLabel(
+                            'Show songs that were',
+                            isEverything ? 'Pick a year to choose' : '',
+                        )}
                         <div
                             role="radiogroup"
                             aria-label="Played status"
-                            class={SEGMENTED_CLASSES}
+                            aria-disabled={isEverything}
+                            class={[
+                                SEGMENTED_CLASSES,
+                                isEverything && 'opacity-50',
+                            ]}
                         >
                             {#each VIEW_MODE_OPTIONS as option (option.value)}
                                 {@render segmentButton(
                                     option.label,
-                                    viewMode === option.value,
+                                    effectiveViewMode === option.value,
                                     () => (viewMode = option.value),
+                                    undefined,
+                                    isEverything,
                                 )}
                             {/each}
                         </div>
@@ -1482,7 +1522,7 @@
                         </div>
 
                         <!-- A gap only means something for songs still waiting to be played. -->
-                        {#if viewMode === 'not-played'}
+                        {#if effectiveViewMode === 'not-played'}
                             <div class="flex flex-col gap-1">
                                 {@render fieldLabel(
                                     'Gap of at least',
@@ -1561,7 +1601,7 @@
                             {:else if isEverything}
                                 Every year
                             {:else}
-                                {showCountLabel}
+                                {showsHeading}
                             {/if}
                         </h2>
                         <p class="text-sm text-muted-foreground">
@@ -1689,7 +1729,7 @@
     bind:open={dialogOpen}
     slug={dialogSlug}
     catalogEntry={dialogCatalogEntry}
-    tourId={singleTour?.tourid ?? null}
-    tourName={isEverything ? null : (singleTour?.tourname ?? 'this selection')}
+    tourId={highlightedTour?.tourid ?? null}
+    tourName={highlightedTour?.tourname ?? null}
     tourPerformances={dialogPerformances}
 />

@@ -8,7 +8,7 @@
         setlistsForYear,
         showYears,
         searchSlugs as searchSlugsRoute,
-        songs as songsRoute,
+        songs as songsRoute
     } from '@/actions/App/Http/Controllers/AppController';
     import AppHead from '@/components/AppHead.svelte';
     import RangeSlider, { clampRange } from '@/components/RangeSlider.svelte';
@@ -73,7 +73,7 @@
     const SONG_SOURCE_OPTIONS: { value: SongSource; label: string }[] = [
         { value: 'phish', label: 'Phish Songs' },
         { value: 'covers', label: 'Covers' },
-        { value: 'both', label: 'Both' },
+        { value: 'both', label: 'Both' }
     ];
 
     type StoredPrefs = {
@@ -110,20 +110,20 @@
      */
     const DEFAULT_FILTERS = {
         viewMode: 'played' as ViewMode,
-        songSource: 'both' as SongSource,
+        songSource: 'both' as SongSource
     };
 
     const PREFS_COOKIE_NAME = 'tour-explorer-prefs';
 
     const savedPrefs = readPrefsCookie<StoredPrefs & LegacyPrefs>(
-        PREFS_COOKIE_NAME,
+        PREFS_COOKIE_NAME
     );
 
     const scrollMemory = createScrollMemory(toPath(page.url));
 
     let {
         excludedSongs = [],
-        clientSyncActiveInterval = 60,
+        clientSyncActiveInterval = 60
     }: {
         excludedSongs?: string[];
         clientSyncActiveInterval?: number;
@@ -135,19 +135,19 @@
     let showFullSetlists = $state(
         typeof savedPrefs?.showFullSetlists === 'boolean'
             ? savedPrefs.showFullSetlists
-            : false,
+            : false
     );
     let filtersOpen = $state(
         typeof savedPrefs?.filtersOpen === 'boolean'
             ? savedPrefs.filtersOpen
-            : true,
+            : true
     );
     let viewMode = $state<ViewMode>(
         savedPrefs?.viewMode === 'played' ||
-            savedPrefs?.viewMode === 'all' ||
-            savedPrefs?.viewMode === 'not-played'
+        savedPrefs?.viewMode === 'all' ||
+        savedPrefs?.viewMode === 'not-played'
             ? savedPrefs.viewMode
-            : DEFAULT_FILTERS.viewMode,
+            : DEFAULT_FILTERS.viewMode
     );
 
     type StatShown = 'gap' | 'play-count' | 'tour-plays' | 'debut-year' | null;
@@ -156,12 +156,12 @@
         'play-count',
         'tour-plays',
         'debut-year',
-        null,
+        null
     ];
     let statShown = $state<StatShown>(
         STAT_SHOWN_VALUES.includes(savedPrefs?.statShown ?? null)
             ? (savedPrefs?.statShown ?? null)
-            : null,
+            : null
     );
 
     /**
@@ -207,7 +207,7 @@
     const savedSongSource = (): SongSource => {
         if (
             SONG_SOURCE_OPTIONS.some(
-                (option) => option.value === savedPrefs?.songSource,
+                (option) => option.value === savedPrefs?.songSource
             )
         ) {
             return savedPrefs!.songSource!;
@@ -253,7 +253,7 @@
      * toggle flips) instead of pinning to a stale date.
      */
     let debutFromDay = $state<number | null>(
-        savedDebutDay(savedPrefs?.debutFrom),
+        savedDebutDay(savedPrefs?.debutFrom)
     );
     let debutToDay = $state<number | null>(savedDebutDay(savedPrefs?.debutTo));
 
@@ -261,14 +261,14 @@
 
     const yearsHttp = useHttp<Record<string, never>, { data: ShowYear[] }>({});
     const setlistsHttp = useHttp<Record<string, never>, { data: SetlistRow[] }>(
-        {},
+        {}
     );
     const songsHttp = useHttp<Record<string, never>, { data: Song[] }>({});
     const searchSlugsHttp = useHttp<Record<string, never>, { data: string[] }>(
-        {},
+        {}
     );
     const refreshHttp = useHttp<Record<string, never>, { data: SetlistRow[] }>(
-        {},
+        {}
     );
     // Shared poll loop: refetch the live year whenever its version hash moves,
     // and expose the show-window flag + countdown the setlists section renders.
@@ -278,7 +278,7 @@
             if (status.year !== null) {
                 refreshLoadedYear(status.year);
             }
-        },
+        }
     });
 
     function refreshLoadedYear(year: number) {
@@ -291,7 +291,7 @@
         refreshHttp.get(setlistsForYear.url(year), {
             onSuccess: (response) => {
                 yearData.set(year, response.data);
-            },
+            }
         });
     }
 
@@ -304,21 +304,21 @@
      * comes back as soon as a year is.
      */
     const effectiveViewMode = $derived<ViewMode>(
-        isEverything ? 'all' : viewMode,
+        isEverything ? 'all' : viewMode
     );
 
     const sortedSelectedYears = $derived(
-        [...selectedYears].sort((a, b) => a - b),
+        [...selectedYears].sort((a, b) => a - b)
     );
 
     /** Every selected year's setlists are in, so the lists can be built. */
     const scopeLoading = $derived(
-        sortedSelectedYears.some((year) => !yearData.has(year)),
+        sortedSelectedYears.some((year) => !yearData.has(year))
     );
 
     /** The tour chips on offer: every tour in the selected years. */
     const availableTours = $derived(
-        sortedSelectedYears.flatMap((year) => buildToursForYear(year)),
+        sortedSelectedYears.flatMap((year) => buildToursForYear(year))
     );
 
     /**
@@ -327,7 +327,7 @@
      */
     const scopeTours = $derived.by(() => {
         const picked = availableTours.filter((tour) =>
-            selectedTourKeys.has(tourKey(tour)),
+            selectedTourKeys.has(tourKey(tour))
         );
 
         return picked.length ? picked : availableTours;
@@ -335,7 +335,7 @@
 
     /** The one tour in play, when there is exactly one — Previous/Next step from it. */
     const singleTour = $derived<Tour | null>(
-        scopeTours.length === 1 ? scopeTours[0] : null,
+        scopeTours.length === 1 ? scopeTours[0] : null
     );
 
     const excludedSet = $derived(new SvelteSet(excludedSongs));
@@ -354,13 +354,13 @@
             const ids = toursByYear.get(year);
 
             return (yearData.get(year) ?? []).filter(
-                (row) => row.artistid === 1 && ids?.has(row.tourid),
+                (row) => row.artistid === 1 && ids?.has(row.tourid)
             );
         });
     });
 
     const countedRows = $derived(
-        tourRows.filter((row) => !excludedSet.has(row.slug)),
+        tourRows.filter((row) => !excludedSet.has(row.slug))
     );
 
     /**
@@ -378,7 +378,7 @@
     const liveShowRows = $derived(
         liveShowdate === null
             ? []
-            : tourRows.filter((row) => row.showdate === liveShowdate),
+            : tourRows.filter((row) => row.showdate === liveShowdate)
     );
 
     const liveSlugs = $derived(new SvelteSet(liveShowRows.map((r) => r.slug)));
@@ -391,7 +391,7 @@
      * highlight clears the next day.
      */
     const liveGapBySlug = $derived(
-        new SvelteMap(liveShowRows.map((row) => [row.slug, row.gap])),
+        new SvelteMap(liveShowRows.map((row) => [row.slug, row.gap]))
     );
 
     /**
@@ -402,7 +402,7 @@
      * until the grace period closes the next afternoon.
      */
     const latestSongSlug = $derived(
-        livePoll.inShowWindow ? (liveShowRows.at(-1)?.slug ?? null) : null,
+        livePoll.inShowWindow ? (liveShowRows.at(-1)?.slug ?? null) : null
     );
 
     /**
@@ -433,7 +433,7 @@
 
         // Newest show first, so the current (or most recent) show sits on top.
         return [...grouped.values()].sort((a, b) =>
-            b[0].showdate.localeCompare(a[0].showdate),
+            b[0].showdate.localeCompare(a[0].showdate)
         );
     });
 
@@ -444,17 +444,17 @@
             return (allSongs ?? [])
                 .filter(
                     (song) =>
-                        song.times_played > 0 && !excludedSet.has(song.slug),
+                        song.times_played > 0 && !excludedSet.has(song.slug)
                 )
                 .map((song) => ({
                     song: song.song,
                     slug: song.slug,
                     count: song.times_played,
                     first: song.debut,
-                    last: song.last_played,
+                    last: song.last_played
                 }))
                 .sort(
-                    (a, b) => b.count - a.count || a.song.localeCompare(b.song),
+                    (a, b) => b.count - a.count || a.song.localeCompare(b.song)
                 );
         }
 
@@ -477,19 +477,19 @@
                     slug: row.slug,
                     count: 1,
                     first: row.showdate,
-                    last: row.showdate,
+                    last: row.showdate
                 });
             }
         }
 
         return [...counts.values()].sort(
-            (a, b) => b.count - a.count || a.song.localeCompare(b.song),
+            (a, b) => b.count - a.count || a.song.localeCompare(b.song)
         );
     });
 
     /** Catalog entry by slug, so played rows can show all-time play count / gap. */
     const catalogBySlug = $derived(
-        new SvelteMap((allSongs ?? []).map((song) => [song.slug, song])),
+        new SvelteMap((allSongs ?? []).map((song) => [song.slug, song]))
     );
 
     /** The play-count and gap sliders move in fives, so their tops do too. */
@@ -510,8 +510,8 @@
                     matchesSongSource(song.artist) && song.gap > highest
                         ? song.gap
                         : highest,
-                0,
-            ),
+                0
+            )
         );
     });
 
@@ -528,8 +528,8 @@
                     song.times_played > highest
                         ? song.times_played
                         : highest,
-                0,
-            ),
+                0
+            )
         );
     });
 
@@ -565,26 +565,26 @@
         debutBounds === null
             ? null
             : clampRange(
-                  debutFromDay,
-                  debutToDay,
-                  debutBounds.min,
-                  debutBounds.max,
-              ),
+                debutFromDay,
+                debutToDay,
+                debutBounds.min,
+                debutBounds.max
+            )
     );
 
     const debutFromDate = $derived(
         debutRange === null || debutFromDay === null
             ? null
-            : isoDateFromDay(debutRange.from),
+            : isoDateFromDay(debutRange.from)
     );
     const debutToDate = $derived(
         debutRange === null || debutToDay === null
             ? null
-            : isoDateFromDay(debutRange.to),
+            : isoDateFromDay(debutRange.to)
     );
 
     const timesPlayedRange = $derived(
-        clampRange(timesPlayedFrom, timesPlayedTo, 0, maxTimesPlayed),
+        clampRange(timesPlayedFrom, timesPlayedTo, 0, maxTimesPlayed)
     );
     const gapRange = $derived(clampRange(gapFrom, gapTo, 0, maxGap));
 
@@ -593,7 +593,7 @@
         value: number,
         range: { from: number; to: number },
         from: number | null,
-        to: number | null,
+        to: number | null
     ): boolean =>
         (from === null || value >= range.from) &&
         (to === null || value <= range.to);
@@ -603,7 +603,7 @@
             timesPlayed,
             timesPlayedRange,
             timesPlayedFrom,
-            timesPlayedTo,
+            timesPlayedTo
         );
 
     /*
@@ -635,7 +635,7 @@
                     if (term === searchState.query.trim()) {
                         searchSlugs = new Set(response.data);
                     }
-                },
+                }
             });
         }, SEARCH_DEBOUNCE_MS);
 
@@ -667,7 +667,7 @@
                     (debutToDate === null || catalogEntry.debut <= debutToDate)
                 );
             })
-            .sort((a, b) => a.song.localeCompare(b.song)),
+            .sort((a, b) => a.song.localeCompare(b.song))
     );
 
     const notPlayed = $derived.by(() => {
@@ -686,8 +686,8 @@
             isEverything
                 ? songCounts.map((row) => row.slug)
                 : countedRows
-                      .filter((row) => row.showdate !== liveShowdate)
-                      .map((row) => row.slug),
+                    .filter((row) => row.showdate !== liveShowdate)
+                    .map((row) => row.slug)
         );
 
         return allSongs
@@ -700,7 +700,7 @@
                     (debutToDate === null || song.debut <= debutToDate) &&
                     !playedSlugs.has(song.slug) &&
                     !excludedSet.has(song.slug) &&
-                    (searchSlugs === null || searchSlugs.has(song.slug)),
+                    (searchSlugs === null || searchSlugs.has(song.slug))
             )
             .sort((a, b) => a.song.localeCompare(b.song));
     });
@@ -723,13 +723,13 @@
                     (debutFromDate === null || song.debut >= debutFromDate) &&
                     (debutToDate === null || song.debut <= debutToDate) &&
                     !excludedSet.has(song.slug) &&
-                    (searchSlugs === null || searchSlugs.has(song.slug)),
+                    (searchSlugs === null || searchSlugs.has(song.slug))
             )
             .sort((a, b) => a.song.localeCompare(b.song));
     });
 
     const tourCountBySlug = $derived(
-        new Map(songCounts.map((row) => [row.slug, row.count])),
+        new Map(songCounts.map((row) => [row.slug, row.count]))
     );
 
     /** One card in the song grid, whichever of the three lists it came from. */
@@ -764,7 +764,7 @@
                         catalogEntry?.gap ??
                         null,
                     debutYear: catalogEntry?.debut.slice(0, 4) ?? '',
-                    muted: false,
+                    muted: false
                 };
             });
         }
@@ -779,15 +779,15 @@
                 debutYear: song.debut.slice(0, 4),
                 muted:
                     effectiveViewMode === 'not-played' ||
-                    !tourCountBySlug.has(song.slug),
-            }),
+                    !tourCountBySlug.has(song.slug)
+            })
         );
     });
 
     const VIEW_MODE_OPTIONS: { value: ViewMode; label: string }[] = [
         { value: 'played', label: 'Played' },
         { value: 'not-played', label: 'Not Played' },
-        { value: 'all', label: 'All' },
+        { value: 'all', label: 'All' }
     ];
 
     /** The number each card can carry, with the colours of its button and badge. */
@@ -801,32 +801,32 @@
             value: 'tour-plays',
             label: 'Tour Plays',
             activeClass: 'bg-sky-700 text-sky-100',
-            badgeClass: 'ring-sky-500/30 text-sky-400/60',
+            badgeClass: 'ring-sky-500/30 text-sky-400/60'
         },
         {
             value: 'play-count',
             label: 'Total Plays',
             activeClass: 'bg-fuchsia-700 text-fuchsia-200',
-            badgeClass: 'ring-fuchsia-500/30 text-fuchsia-500/60',
+            badgeClass: 'ring-fuchsia-500/30 text-fuchsia-500/60'
         },
         {
             value: 'gap',
             label: 'Gap',
             activeClass: 'bg-green-700 text-green-100',
-            badgeClass: 'ring-green-800/30 text-green-400/60',
+            badgeClass: 'ring-green-800/30 text-green-400/60'
         },
         {
             value: 'debut-year',
             label: 'Debut Year',
             activeClass: 'bg-slate-700 text-slate-100',
-            badgeClass: 'ring-slate-500/30',
+            badgeClass: 'ring-slate-500/30'
         },
         {
             value: null,
             label: 'None',
             activeClass: 'bg-primary text-primary-foreground',
-            badgeClass: '',
-        },
+            badgeClass: ''
+        }
     ];
 
     /**
@@ -834,18 +834,18 @@
      * with no years picked, where it would only repeat Total Plays.
      */
     const hidesTourPlays = $derived(
-        isEverything || effectiveViewMode === 'not-played',
+        isEverything || effectiveViewMode === 'not-played'
     );
 
     const statOptions = $derived(
         STAT_OPTIONS.filter(
-            (option) => !hidesTourPlays || option.value !== 'tour-plays',
-        ),
+            (option) => !hidesTourPlays || option.value !== 'tour-plays'
+        )
     );
 
     const statBadgeClass = $derived(
         STAT_OPTIONS.find((option) => option.value === statShown)?.badgeClass ??
-            '',
+        ''
     );
 
     function statValue(card: SongCard): string | number {
@@ -869,25 +869,25 @@
             songSource === 'phish'
                 ? 'Phish song'
                 : songSource === 'covers'
-                  ? 'cover song'
-                  : 'song';
+                    ? 'cover song'
+                    : 'song';
         const suffix =
             effectiveViewMode === 'played'
                 ? ' played'
                 : effectiveViewMode === 'not-played'
-                  ? ' not played'
-                  : '';
+                    ? ' not played'
+                    : '';
 
         return `${count} ${kind}${count !== 1 ? 's' : ''}${suffix}`;
     });
 
     const showCountLabel = $derived(
-        `${tourShows.length} show${tourShows.length !== 1 ? 's' : ''}`,
+        `${tourShows.length} show${tourShows.length !== 1 ? 's' : ''}`
     );
 
     const pickedTourCount = $derived(
         availableTours.filter((tour) => selectedTourKeys.has(tourKey(tour)))
-            .length,
+            .length
     );
 
     /** "30 Shows (3 years selected)", or "8 Shows (2 tours selected from 3 years)". */
@@ -905,7 +905,7 @@
     });
 
     const dialogCatalogEntry = $derived(
-        allSongs?.find((song) => song.slug === dialogSlug) ?? null,
+        allSongs?.find((song) => song.slug === dialogSlug) ?? null
     );
 
     /** Newest first, the way the dialog lists every other performance. */
@@ -918,7 +918,7 @@
     const dialogPerformances = $derived(
         [...tourRows]
             .filter((row) => row.slug === dialogSlug)
-            .sort((a, b) => b.showdate.localeCompare(a.showdate)),
+            .sort((a, b) => b.showdate.localeCompare(a.showdate))
     );
 
     function buildToursForYear(year: number): Tour[] {
@@ -941,7 +941,7 @@
                 tourid: row.tourid,
                 tourname: row.tourname,
                 tourwhen: row.tourwhen,
-                year,
+                year
             });
         }
 
@@ -1015,7 +1015,7 @@
                 settle();
             },
             onError: fail,
-            onNetworkError: fail,
+            onNetworkError: fail
         });
     }
 
@@ -1128,23 +1128,23 @@
         const savedYears = Array.isArray(savedPrefs?.years)
             ? savedPrefs.years.filter(isNumber)
             : isNumber(savedPrefs?.year)
-              ? [savedPrefs.year]
-              : null;
+                ? [savedPrefs.year]
+                : null;
 
         const legacyTourIds = Array.isArray(savedPrefs?.tourids)
             ? savedPrefs.tourids.filter(isNumber)
             : isNumber(savedPrefs?.tourid)
-              ? [savedPrefs.tourid]
-              : [];
+                ? [savedPrefs.tourid]
+                : [];
 
         // Older cookies held bare tour ids, which applied to every saved year.
         const savedTourKeys = Array.isArray(savedPrefs?.tours)
             ? savedPrefs.tours.filter(
-                  (key): key is string => typeof key === 'string',
-              )
+                (key): key is string => typeof key === 'string'
+            )
             : (savedYears ?? []).flatMap((year) =>
-                  legacyTourIds.map((tourid) => tourKey({ year, tourid })),
-              );
+                legacyTourIds.map((tourid) => tourKey({ year, tourid }))
+            );
 
         const knownYears = savedYears?.filter((year) => years.includes(year));
 
@@ -1204,7 +1204,7 @@
                 restoreSelection();
 
                 initialLoading = false;
-            },
+            }
         });
 
         allSongsLoading = true;
@@ -1213,7 +1213,7 @@
             onSuccess: (response) => {
                 allSongs = response.data;
                 allSongsLoading = false;
-            },
+            }
         });
 
         // Establish the version baseline and start the self-pacing poll loop.
@@ -1270,7 +1270,7 @@
             viewMode,
             songSource,
             filtersOpen,
-            showFullSetlists,
+            showFullSetlists
         });
     });
 </script>
@@ -1531,138 +1531,83 @@
         {/if}
 
         <div class="max-w-5xl">
-            {#if scopeLoading}
-                <p class="text-sm text-muted-foreground">Loading shows…</p>
-            {:else if years.length}
-                <!-- Results: what is being looked at, how many songs, and the number on each card. -->
-                <div
-                    class="flex flex-col gap-3 border-b pb-3 md:flex-row md:items-end md:justify-between"
-                >
-                    <div>
-                        <h2 class="font-serif text-xl font-medium">
-                            {#if singleTour}
-                                {singleTour.tourname}
-                            {:else if isEverything}
-                                Every year
-                            {:else}
-                                {showsHeading}
-                            {/if}
-                        </h2>
-                        <p class="text-sm text-muted-foreground">
-                            {#if singleTour}
-                                {singleTour.tourwhen} &middot; {showCountLabel}
-                                &middot;
-                            {/if}
-                            {allSongs ? songCountLabel : 'Loading songs…'}
-                        </p>
-                    </div>
+            <!-- Results: what is being looked at, how many songs, and the number on each card. -->
+            <div
+                class="flex flex-col gap-3 border-b pb-3 md:flex-row md:items-end md:justify-between"
+            >
+                <div>
+                    <h2 class="font-serif text-xl font-medium">
+                        {#if singleTour}
+                            {singleTour.tourname}
+                        {:else if isEverything}
+                            Every year
+                        {:else}
+                            {showsHeading}
+                        {/if}
+                    </h2>
+                    <p class="text-sm text-muted-foreground">
+                        {#if singleTour}
+                            {singleTour.tourwhen} &middot; {showCountLabel}
+                            &middot;
+                        {/if}
+                        {allSongs ? songCountLabel : 'Loading songs…'}
+                    </p>
+                </div>
 
-                    <div class="flex flex-col gap-1 md:items-end">
+                <div class="flex flex-col gap-1 md:items-end">
                         <span class="text-xs text-muted-foreground">
                             Number on each song tile
                         </span>
-                        <div
-                            role="radiogroup"
-                            aria-label="Number on each song tile"
-                            class={SEGMENTED_CLASSES}
-                        >
-                            {#each statOptions as option (option.label)}
-                                {@render segmentButton(
-                                    option.label,
-                                    statShown === option.value,
-                                    () => (statShown = option.value),
-                                    option.activeClass,
-                                )}
-                            {/each}
-                        </div>
+                    <div
+                        role="radiogroup"
+                        aria-label="Number on each song tile"
+                        class={SEGMENTED_CLASSES}
+                    >
+                        {#each statOptions as option (option.label)}
+                            {@render segmentButton(
+                                option.label,
+                                statShown === option.value,
+                                () => (statShown = option.value),
+                                option.activeClass,
+                            )}
+                        {/each}
                     </div>
                 </div>
+            </div>
 
-                {#if !allSongs}
-                    <p class="mt-4 text-sm text-muted-foreground">
-                        Loading full song catalog…
-                    </p>
-                {:else if songCards.length}
-                    <div
-                        class="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
-                    >
-                        {#each songCards as card (card.slug)}
-                            <button
-                                type="button"
-                                onclick={() => openSongDialog(card.slug)}
-                                class="flex items-baseline cursor-pointer ring-1 ring-slate-500/10 justify-between gap-2 rounded p-3 text-left text-base hover:bg-accent {liveClasses(
+            {#if !allSongs}
+                <p class="mt-4 text-sm text-muted-foreground">
+                    Loading full song catalog…
+                </p>
+            {:else if songCards.length}
+                <div
+                    class="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
+                >
+                    {#each songCards as card (card.slug)}
+                        <button
+                            type="button"
+                            onclick={() => openSongDialog(card.slug)}
+                            class="flex items-baseline cursor-pointer ring-1 ring-slate-500/10 justify-between gap-2 rounded p-3 text-left text-base hover:bg-accent {liveClasses(
                                     card.slug,
                                 ) ||
                                     (card.muted
                                         ? 'text-muted-foreground'
                                         : 'hover:text-primary')}"
-                            >
-                                <span class="truncate">{card.song}</span>
-                                {#if statShown !== null}
+                        >
+                            <span class="truncate">{card.song}</span>
+                            {#if statShown !== null}
                                     <span
                                         class="shrink-0 text-center text-xs font-medium ring-1 rounded-4xl w-[18%] py-0.5 {statBadgeClass}"
                                     >
                                         {statValue(card)}
                                     </span>
-                                {/if}
-                            </button>
-                        {/each}
-                    </div>
-                {:else}
-                    <p class="mt-4 text-sm text-muted-foreground">
-                        No songs match these filters.
-                    </p>
-                {/if}
-
-                {#if tourShows.length}
-                    <button
-                        type="button"
-                        class="mt-4 text-sm text-primary underline decoration-primary/30 underline-offset-4"
-                        onclick={() => (showFullSetlists = !showFullSetlists)}
-                    >
-                        {showFullSetlists ? 'Hide' : 'Show'} setlists for {singleTour
-                            ? 'tour'
-                            : 'selection'}
-                    </button>
-
-                    {#if showFullSetlists}
-                        <div
-                            class="mt-4 max-w-2xl flex flex-col space-y-5 border-t border-white pt-5"
-                        >
-                            {#if livePoll.inShowWindow}
-                                <div
-                                    class="flex items-center gap-2 text-sm text-muted-foreground"
-                                    aria-live="polite"
-                                >
-                                    <span class="relative flex size-2">
-                                        <span
-                                            class="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-75"
-                                        ></span>
-                                        <span
-                                            class="relative inline-flex size-2 rounded-full bg-green-500"
-                                        ></span>
-                                    </span>
-                                    <span
-                                        >Next update: {formatCountdown(
-                                            livePoll.secondsRemaining,
-                                        )}</span
-                                    >
-                                </div>
                             {/if}
-                            {#each tourShows as rows (rows[0].showid)}
-                                <SetlistView
-                                    {rows}
-                                    awaitingNextSong={livePoll.inShowWindow &&
-                                        rows[0].showdate ===
-                                            livePoll.activeShowdate}
-                                />
-                            {/each}
-                        </div>
-                    {/if}
-                {/if}
+                        </button>
+                    {/each}
+                </div>
             {:else}
-                <p class="text-sm text-muted-foreground">
-                    No tour data available.
+                <p class="mt-4 text-sm text-muted-foreground">
+                    No songs match these filters.
                 </p>
             {/if}
         </div>

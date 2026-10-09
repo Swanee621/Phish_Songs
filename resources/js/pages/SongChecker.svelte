@@ -11,6 +11,7 @@
         songs as songsRoute,
     } from '@/actions/App/Http/Controllers/AppController';
     import AppHead from '@/components/AppHead.svelte';
+    import RangeSlider, { clampRange } from '@/components/RangeSlider.svelte';
     import SetlistView from '@/components/SetlistView.svelte';
     import SongHistoryDialog from '@/components/SongHistoryDialog.svelte';
     import { createScrollMemory, lastVisit, toPath } from '@/lib/last-visit';
@@ -33,18 +34,6 @@
 
     const SEGMENTED_CLASSES =
         'flex w-full rounded-md border p-0.5 md:inline-flex md:w-auto md:self-start';
-
-    const SLIDER_CLASSES =
-        'h-6 w-full cursor-pointer appearance-none bg-transparent [&::-webkit-slider-runnable-track]:h-2 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-secondary [&::-webkit-slider-thumb]:-mt-2 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-moz-range-track]:h-2 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-secondary [&::-moz-range-thumb]:h-6 [&::-moz-range-thumb]:w-6 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-primary md:h-5 md:[&::-webkit-slider-thumb]:-mt-1.5 md:[&::-webkit-slider-thumb]:h-5 md:[&::-webkit-slider-thumb]:w-5 md:[&::-moz-range-thumb]:h-5 md:[&::-moz-range-thumb]:w-5';
-
-    /**
-     * One of the two stacked inputs forming the debut-date range slider. The
-     * shared track is drawn separately underneath, so each input's own track is
-     * transparent and only its thumb accepts the pointer — otherwise the input
-     * on top would swallow every click meant for the one below.
-     */
-    const DUAL_RANGE_INPUT_CLASSES =
-        'pointer-events-none absolute inset-0 h-6 w-full cursor-pointer appearance-none bg-transparent [&::-webkit-slider-runnable-track]:h-2 [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:-mt-2 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-moz-range-track]:h-2 [&::-moz-range-track]:bg-transparent [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:h-6 [&::-moz-range-thumb]:w-6 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-primary md:h-5 md:[&::-webkit-slider-thumb]:-mt-1.5 md:[&::-webkit-slider-thumb]:h-5 md:[&::-webkit-slider-thumb]:w-5 md:[&::-moz-range-thumb]:h-5 md:[&::-moz-range-thumb]:w-5';
 
     /** Played at some point during the show being treated as current. */
     const PLAYED_TONIGHT_CLASSES =
@@ -92,8 +81,11 @@
         years: number[];
         /** `year:tourid` keys; empty for a year means every tour in it. */
         tours: string[];
-        minTimesPlayed: number;
-        minGap: number;
+        /** `null` (or 0, in older cookies) means that end of the slider is open. */
+        minTimesPlayed: number | null;
+        maxTimesPlayed: number | null;
+        minGap: number | null;
+        maxGap: number | null;
         debutFrom: string | null;
         debutTo: string | null;
         statShown: StatShown;
@@ -119,8 +111,6 @@
     const DEFAULT_FILTERS = {
         viewMode: 'played' as ViewMode,
         songSource: 'both' as SongSource,
-        minTimesPlayed: 0,
-        minGap: 0,
     };
 
     const PREFS_COOKIE_NAME = 'tour-explorer-prefs';
@@ -202,16 +192,17 @@
     let dialogOpen = $state(false);
     let dialogSlug = $state<string | null>(null);
 
-    let minTimesPlayed = $state(
-        typeof savedPrefs?.minTimesPlayed === 'number'
-            ? savedPrefs.minTimesPlayed
-            : DEFAULT_FILTERS.minTimesPlayed,
-    );
-    let minGap = $state(
-        typeof savedPrefs?.minGap === 'number'
-            ? savedPrefs.minGap
-            : DEFAULT_FILTERS.minGap,
-    );
+    const savedHandle = (value: unknown): number | null =>
+        typeof value === 'number' && value > 0 ? value : null;
+
+    /**
+     * Where the play-count and gap handles have been dragged to. `null` means
+     * the handle rests at its end of the range — no filter.
+     */
+    let timesPlayedFrom = $state(savedHandle(savedPrefs?.minTimesPlayed));
+    let timesPlayedTo = $state(savedHandle(savedPrefs?.maxTimesPlayed));
+    let gapFrom = $state(savedHandle(savedPrefs?.minGap));
+    let gapTo = $state(savedHandle(savedPrefs?.maxGap));
 
     const savedSongSource = (): SongSource => {
         if (
@@ -501,18 +492,26 @@
         new SvelteMap((allSongs ?? []).map((song) => [song.slug, song])),
     );
 
+    /** The play-count and gap sliders move in fives, so their tops do too. */
+    const COUNT_SLIDER_STEP = 5;
+
+    const roundUpToStep = (value: number): number =>
+        Math.ceil(value / COUNT_SLIDER_STEP) * COUNT_SLIDER_STEP;
+
     /** Highest gap among the songs the source control lets through, capping the slider. */
     const maxGap = $derived.by(() => {
         if (!allSongs) {
             return 0;
         }
 
-        return allSongs.reduce(
-            (highest, song) =>
-                matchesSongSource(song.artist) && song.gap > highest
-                    ? song.gap
-                    : highest,
-            0,
+        return roundUpToStep(
+            allSongs.reduce(
+                (highest, song) =>
+                    matchesSongSource(song.artist) && song.gap > highest
+                        ? song.gap
+                        : highest,
+                0,
+            ),
         );
     });
 
@@ -522,12 +521,15 @@
             return 0;
         }
 
-        return allSongs.reduce(
-            (highest, song) =>
-                matchesSongSource(song.artist) && song.times_played > highest
-                    ? song.times_played
-                    : highest,
-            0,
+        return roundUpToStep(
+            allSongs.reduce(
+                (highest, song) =>
+                    matchesSongSource(song.artist) &&
+                    song.times_played > highest
+                        ? song.times_played
+                        : highest,
+                0,
+            ),
         );
     });
 
@@ -559,59 +561,50 @@
         return min === Infinity ? null : { min, max };
     });
 
-    /** Handle positions clamped to the current bounds, lower before upper. */
-    const debutFromValue = $derived(
+    const debutRange = $derived(
         debutBounds === null
-            ? 0
-            : Math.min(
-                  Math.max(debutFromDay ?? debutBounds.min, debutBounds.min),
+            ? null
+            : clampRange(
+                  debutFromDay,
+                  debutToDay,
+                  debutBounds.min,
                   debutBounds.max,
               ),
     );
-    const debutToValue = $derived(
-        debutBounds === null
-            ? 0
-            : Math.max(
-                  Math.min(debutToDay ?? debutBounds.max, debutBounds.max),
-                  debutFromValue,
-              ),
-    );
-
-    const debutFromPercent = $derived(
-        debutBounds === null || debutBounds.max === debutBounds.min
-            ? 0
-            : ((debutFromValue - debutBounds.min) /
-                  (debutBounds.max - debutBounds.min)) *
-                  100,
-    );
-    const debutToPercent = $derived(
-        debutBounds === null || debutBounds.max === debutBounds.min
-            ? 100
-            : ((debutToValue - debutBounds.min) /
-                  (debutBounds.max - debutBounds.min)) *
-                  100,
-    );
-
-    /**
-     * When both handles sit together, only the input on top can be grabbed.
-     * Raising the lower handle whenever it is past the midpoint means the
-     * grabbable one is always the handle that still has somewhere to go.
-     */
-    const debutFromOnTop = $derived(
-        debutBounds !== null &&
-            debutFromValue > (debutBounds.min + debutBounds.max) / 2,
-    );
 
     const debutFromDate = $derived(
-        debutBounds === null || debutFromDay === null
+        debutRange === null || debutFromDay === null
             ? null
-            : isoDateFromDay(debutFromValue),
+            : isoDateFromDay(debutRange.from),
     );
     const debutToDate = $derived(
-        debutBounds === null || debutToDay === null
+        debutRange === null || debutToDay === null
             ? null
-            : isoDateFromDay(debutToValue),
+            : isoDateFromDay(debutRange.to),
     );
+
+    const timesPlayedRange = $derived(
+        clampRange(timesPlayedFrom, timesPlayedTo, 0, maxTimesPlayed),
+    );
+    const gapRange = $derived(clampRange(gapFrom, gapTo, 0, maxGap));
+
+    /** Whether a value passes a slider, whose `null` handles leave that side open. */
+    const withinRange = (
+        value: number,
+        range: { from: number; to: number },
+        from: number | null,
+        to: number | null,
+    ): boolean =>
+        (from === null || value >= range.from) &&
+        (to === null || value <= range.to);
+
+    const passesTimesPlayed = (timesPlayed: number): boolean =>
+        withinRange(
+            timesPlayed,
+            timesPlayedRange,
+            timesPlayedFrom,
+            timesPlayedTo,
+        );
 
     /*
      * Top-bar search, answered by the server's search engine. A song stays on
@@ -668,7 +661,7 @@
 
                 return (
                     matchesSongSource(catalogEntry.artist) &&
-                    catalogEntry.times_played >= minTimesPlayed &&
+                    passesTimesPlayed(catalogEntry.times_played) &&
                     (debutFromDate === null ||
                         catalogEntry.debut >= debutFromDate) &&
                     (debutToDate === null || catalogEntry.debut <= debutToDate)
@@ -701,8 +694,8 @@
             .filter(
                 (song) =>
                     matchesSongSource(song.artist) &&
-                    song.times_played >= minTimesPlayed &&
-                    (minGap === 0 || song.gap >= minGap) &&
+                    passesTimesPlayed(song.times_played) &&
+                    withinRange(song.gap, gapRange, gapFrom, gapTo) &&
                     (debutFromDate === null || song.debut >= debutFromDate) &&
                     (debutToDate === null || song.debut <= debutToDate) &&
                     !playedSlugs.has(song.slug) &&
@@ -726,7 +719,7 @@
             .filter(
                 (song) =>
                     matchesSongSource(song.artist) &&
-                    song.times_played >= minTimesPlayed &&
+                    passesTimesPlayed(song.times_played) &&
                     (debutFromDate === null || song.debut >= debutFromDate) &&
                     (debutToDate === null || song.debut <= debutToDate) &&
                     !excludedSet.has(song.slug) &&
@@ -1105,8 +1098,10 @@
     function resetFilters() {
         viewMode = DEFAULT_FILTERS.viewMode;
         songSource = DEFAULT_FILTERS.songSource;
-        minTimesPlayed = DEFAULT_FILTERS.minTimesPlayed;
-        minGap = DEFAULT_FILTERS.minGap;
+        timesPlayedFrom = null;
+        timesPlayedTo = null;
+        gapFrom = null;
+        gapTo = null;
         debutFromDay = null;
         debutToDay = null;
         searchState.query = '';
@@ -1114,37 +1109,6 @@
         if (years.length) {
             selectLatestTour(years[years.length - 1]);
         }
-    }
-
-    /**
-     * The handles are clamped so they cannot cross, and a handle pushed back to
-     * its own end of the range dissolves into "no filter". The DOM value is
-     * written back because Svelte only re-renders `value` when the clamped
-     * result changes — a thumb dragged past the other handle would otherwise
-     * leave the DOM ahead of the state.
-     */
-    function onDebutFromInput(event: Event) {
-        if (debutBounds === null) {
-            return;
-        }
-
-        const input = event.currentTarget as HTMLInputElement;
-        const clamped = Math.min(Number(input.value), debutToValue);
-
-        debutFromDay = clamped <= debutBounds.min ? null : clamped;
-        input.value = String(clamped);
-    }
-
-    function onDebutToInput(event: Event) {
-        if (debutBounds === null) {
-            return;
-        }
-
-        const input = event.currentTarget as HTMLInputElement;
-        const clamped = Math.max(Number(input.value), debutFromValue);
-
-        debutToDay = clamped >= debutBounds.max ? null : clamped;
-        input.value = String(clamped);
     }
 
     function openSongDialog(slug: string) {
@@ -1296,8 +1260,10 @@
         writePrefsCookie<StoredPrefs>(PREFS_COOKIE_NAME, {
             years: sortedSelectedYears,
             tours: [...selectedTourKeys],
-            minTimesPlayed,
-            minGap,
+            minTimesPlayed: timesPlayedFrom,
+            maxTimesPlayed: timesPlayedTo,
+            minGap: gapFrom,
+            maxGap: gapTo,
             debutFrom: debutFromDate,
             debutTo: debutToDate,
             statShown,
@@ -1506,18 +1472,19 @@
                     {#if allSongs}
                         <div class="flex flex-col gap-1">
                             {@render fieldLabel(
-                                'Played at least',
-                                `${minTimesPlayed}+ times all-time`,
+                                'Played',
+                                `${timesPlayedRange.from} – ${timesPlayedRange.to} times`,
                                 'min-times-played',
                             )}
-                            <input
-                                id="min-times-played"
-                                type="range"
-                                min="0"
+                            <RangeSlider
+                                min={0}
                                 max={maxTimesPlayed}
-                                step="5"
-                                bind:value={minTimesPlayed}
-                                class={SLIDER_CLASSES}
+                                step={COUNT_SLIDER_STEP}
+                                bind:from={timesPlayedFrom}
+                                bind:to={timesPlayedTo}
+                                fromId="min-times-played"
+                                fromLabel="Fewest times played"
+                                toLabel="Most times played"
                             />
                         </div>
 
@@ -1525,60 +1492,37 @@
                         {#if effectiveViewMode === 'not-played'}
                             <div class="flex flex-col gap-1">
                                 {@render fieldLabel(
-                                    'Gap of at least',
-                                    minGap === 0 ? 'Any' : `${minGap}+ shows`,
+                                    'Gap',
+                                    `${gapRange.from} – ${gapRange.to} shows`,
                                     'min-gap',
                                 )}
-                                <input
-                                    id="min-gap"
-                                    type="range"
-                                    min="0"
+                                <RangeSlider
+                                    min={0}
                                     max={maxGap}
-                                    step="5"
-                                    bind:value={minGap}
-                                    class={SLIDER_CLASSES}
+                                    step={COUNT_SLIDER_STEP}
+                                    bind:from={gapFrom}
+                                    bind:to={gapTo}
+                                    fromId="min-gap"
+                                    fromLabel="Shortest gap"
+                                    toLabel="Longest gap"
                                 />
                             </div>
                         {/if}
 
-                        {#if debutBounds}
+                        {#if debutBounds && debutRange}
                             <div class="flex flex-col gap-1">
                                 {@render fieldLabel(
                                     'Debuted between',
-                                    `${isoDateFromDay(debutFromValue)} – ${isoDateFromDay(debutToValue)}`,
+                                    `${isoDateFromDay(debutRange.from)} – ${isoDateFromDay(debutRange.to)}`,
                                 )}
-                                <div class="relative h-6 md:h-5">
-                                    <div
-                                        class="absolute inset-x-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-secondary"
-                                    ></div>
-                                    <div
-                                        class="absolute top-1/2 h-2 -translate-y-1/2 rounded-full bg-primary/30"
-                                        style="left: {debutFromPercent}%; right: {100 -
-                                            debutToPercent}%"
-                                    ></div>
-                                    <input
-                                        type="range"
-                                        aria-label="Earliest debut date"
-                                        min={debutBounds.min}
-                                        max={debutBounds.max}
-                                        step="1"
-                                        value={debutFromValue}
-                                        oninput={onDebutFromInput}
-                                        class="{DUAL_RANGE_INPUT_CLASSES} {debutFromOnTop
-                                            ? 'z-30'
-                                            : 'z-10'}"
-                                    />
-                                    <input
-                                        type="range"
-                                        aria-label="Latest debut date"
-                                        min={debutBounds.min}
-                                        max={debutBounds.max}
-                                        step="1"
-                                        value={debutToValue}
-                                        oninput={onDebutToInput}
-                                        class="{DUAL_RANGE_INPUT_CLASSES} z-20"
-                                    />
-                                </div>
+                                <RangeSlider
+                                    min={debutBounds.min}
+                                    max={debutBounds.max}
+                                    bind:from={debutFromDay}
+                                    bind:to={debutToDay}
+                                    fromLabel="Earliest debut date"
+                                    toLabel="Latest debut date"
+                                />
                             </div>
                         {/if}
                     {/if}

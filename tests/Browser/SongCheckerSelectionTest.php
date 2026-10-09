@@ -165,6 +165,32 @@ test('the filters still apply to search results', function () {
         ->assertNoJavaScriptErrors();
 });
 
+test('the played slider caps the play count from above', function () {
+    $thisYear = (int) date('Y');
+
+    seedTourWithSong($thisYear, 'Current Run', 'Tour Song');
+    Song::factory()->create(['song' => 'Rarely Played', 'times_played' => 2]);
+    Song::factory()->create(['song' => 'Often Played', 'times_played' => 498]);
+
+    $page = visit('/');
+
+    $page->click((string) $thisYear)
+        ->click('Not Played')
+        ->assertSee('Often Played')
+        ->assertAttribute('[aria-label="Most times played"]', 'max', '500')
+        ->assertAttribute('[aria-label="Most times played"]', 'step', '5')
+        ->script(<<<'JS'
+            const slider = document.querySelector('[aria-label="Most times played"]');
+            slider.value = '10';
+            slider.dispatchEvent(new Event('input', { bubbles: true }));
+        JS);
+
+    $page->assertSee('Rarely Played')
+        ->assertDontSee('Often Played')
+        ->assertSee('0 – 10 times')
+        ->assertNoJavaScriptErrors();
+});
+
 test('the heading counts shows per year and picked tours', function () {
     $thisYear = (int) date('Y');
 

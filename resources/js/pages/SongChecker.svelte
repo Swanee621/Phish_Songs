@@ -25,6 +25,18 @@
     const OUTLINE_BUTTON_CLASSES =
         'inline-flex h-10 items-center justify-center gap-2 rounded-md border border-input bg-background px-4 text-sm font-medium whitespace-nowrap transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 md:h-8 md:px-3 md:text-xs';
 
+    const FILTER_CARD_CLASSES =
+        'flex flex-col gap-4 rounded-lg border bg-card p-4';
+
+    const FILTER_HEADING_CLASSES =
+        'text-xs font-semibold tracking-wide text-muted-foreground uppercase';
+
+    const SEGMENTED_CLASSES =
+        'flex w-full rounded-md border p-0.5 md:inline-flex md:w-auto md:self-start';
+
+    const SLIDER_CLASSES =
+        'h-6 w-full cursor-pointer appearance-none bg-transparent [&::-webkit-slider-runnable-track]:h-2 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-secondary [&::-webkit-slider-thumb]:-mt-2 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-moz-range-track]:h-2 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-secondary [&::-moz-range-thumb]:h-6 [&::-moz-range-thumb]:w-6 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-primary md:h-5 md:[&::-webkit-slider-thumb]:-mt-1.5 md:[&::-webkit-slider-thumb]:h-5 md:[&::-webkit-slider-thumb]:w-5 md:[&::-moz-range-thumb]:h-5 md:[&::-moz-range-thumb]:w-5';
+
     /**
      * One of the two stacked inputs forming the debut-date range slider. The
      * shared track is drawn separately underneath, so each input's own track is
@@ -78,8 +90,8 @@
     type StoredPrefs = {
         /** Empty means every year — the whole catalog. */
         years: number[];
-        /** Empty for a year means every tour in it. */
-        tourids: number[];
+        /** `year:tourid` keys; empty for a year means every tour in it. */
+        tours: string[];
         minTimesPlayed: number;
         minGap: number;
         debutFrom: string | null;
@@ -95,6 +107,8 @@
     type LegacyPrefs = {
         year: number;
         tourid: number;
+        /** Tour ids without their year, from before "Not Part of a Tour" was told apart per year. */
+        tourids: number[];
         onlyPhishSongs: boolean;
     };
 
@@ -165,7 +179,16 @@
      * a selected year with none of its tours picked means all of that year.
      */
     const selectedYears = new SvelteSet<number>();
-    const selectedTourIds = new SvelteSet<number>();
+
+    /**
+     * Picked tours, keyed by year as well as id: phish.net files every one-off
+     * show under the same "Not Part of a Tour" id, so picking it in one year
+     * must not pick it in every other.
+     */
+    const selectedTourKeys = new SvelteSet<string>();
+
+    const tourKey = (tour: { year: number; tourid: number }): string =>
+        `${tour.year}:${tour.tourid}`;
 
     /**
      * Held back until the first selection is in place, so the cookie is not
@@ -307,7 +330,7 @@
         sortedSelectedYears.flatMap((year) => {
             const yearTours = buildToursForYear(year);
             const picked = yearTours.filter((tour) =>
-                selectedTourIds.has(tour.tourid),
+                selectedTourKeys.has(tourKey(tour)),
             );
 
             return picked.length ? picked : yearTours;
@@ -725,6 +748,149 @@
         new Map(songCounts.map((row) => [row.slug, row.count])),
     );
 
+    /** One card in the song grid, whichever of the three lists it came from. */
+    type SongCard = {
+        slug: string;
+        song: string;
+        tourPlays: number;
+        totalPlays: number | null;
+        gap: number | null;
+        debutYear: string;
+        /** Not played in the selected shows, so shown dimmed. */
+        muted: boolean;
+    };
+
+    /**
+     * The list the view toggle asks for, flattened to the fields a card shows.
+     * The gap prefers the one carried into tonight's show, so a song just
+     * played keeps the gap it broke until the highlight clears.
+     */
+    const songCards = $derived.by<SongCard[]>(() => {
+        if (viewMode === 'played') {
+            return playedAlphabetical.map((row) => {
+                const catalogEntry = catalogBySlug.get(row.slug);
+
+                return {
+                    slug: row.slug,
+                    song: row.song,
+                    tourPlays: row.count,
+                    totalPlays: catalogEntry?.times_played ?? null,
+                    gap:
+                        liveGapBySlug.get(row.slug) ??
+                        catalogEntry?.gap ??
+                        null,
+                    debutYear: catalogEntry?.debut.slice(0, 4) ?? '',
+                    muted: false,
+                };
+            });
+        }
+
+        return (viewMode === 'all' ? allSorted : notPlayed).map((song) => ({
+            slug: song.slug,
+            song: song.song,
+            tourPlays: tourCountBySlug.get(song.slug) ?? 0,
+            totalPlays: song.times_played,
+            gap: liveGapBySlug.get(song.slug) ?? song.gap,
+            debutYear: song.debut.slice(0, 4),
+            muted: viewMode === 'not-played' || !tourCountBySlug.has(song.slug),
+        }));
+    });
+
+    const VIEW_MODE_OPTIONS: { value: ViewMode; label: string }[] = [
+        { value: 'played', label: 'Played' },
+        { value: 'not-played', label: 'Not Played' },
+        { value: 'all', label: 'All' },
+    ];
+
+    /** The number each card can carry, with the colours of its button and badge. */
+    const STAT_OPTIONS: {
+        value: StatShown;
+        label: string;
+        activeClass: string;
+        badgeClass: string;
+    }[] = [
+        {
+            value: 'tour-plays',
+            label: 'Tour Plays',
+            activeClass: 'bg-sky-700 text-sky-100',
+            badgeClass: 'ring-sky-500/30 text-sky-400/60',
+        },
+        {
+            value: 'play-count',
+            label: 'Total Plays',
+            activeClass: 'bg-fuchsia-700 text-fuchsia-200',
+            badgeClass: 'ring-fuchsia-500/30 text-fuchsia-500/60',
+        },
+        {
+            value: 'gap',
+            label: 'Gap',
+            activeClass: 'bg-green-700 text-green-100',
+            badgeClass: 'ring-green-800/30 text-green-400/60',
+        },
+        {
+            value: 'debut-year',
+            label: 'Debut Year',
+            activeClass: 'bg-slate-700 text-slate-100',
+            badgeClass: 'ring-slate-500/30',
+        },
+        {
+            value: null,
+            label: 'None',
+            activeClass: 'bg-primary text-primary-foreground',
+            badgeClass: '',
+        },
+    ];
+
+    /** "Tour Plays" means nothing for songs the selected shows never played. */
+    const statOptions = $derived(
+        STAT_OPTIONS.filter(
+            (option) =>
+                viewMode !== 'not-played' || option.value !== 'tour-plays',
+        ),
+    );
+
+    const statBadgeClass = $derived(
+        STAT_OPTIONS.find((option) => option.value === statShown)?.badgeClass ??
+            '',
+    );
+
+    function statValue(card: SongCard): string | number {
+        switch (statShown) {
+            case 'tour-plays':
+                return card.tourPlays;
+            case 'play-count':
+                return card.totalPlays ?? '—';
+            case 'gap':
+                return card.gap ?? '—';
+            case 'debut-year':
+                return card.debutYear || '—';
+            default:
+                return '';
+        }
+    }
+
+    const songCountLabel = $derived.by(() => {
+        const count = songCards.length;
+        const kind =
+            songSource === 'phish'
+                ? 'Phish song'
+                : songSource === 'covers'
+                  ? 'cover song'
+                  : 'song';
+        const suffix =
+            viewMode === 'played'
+                ? ' played'
+                : viewMode === 'not-played'
+                  ? ' not played'
+                  : '';
+
+        return `${count} ${kind}${count !== 1 ? 's' : ''}${suffix}`;
+    });
+
+    const showCountLabel = $derived(
+        `${tourShows.length} show${tourShows.length !== 1 ? 's' : ''}`,
+    );
+
     const dialogCatalogEntry = $derived(
         allSongs?.find((song) => song.slug === dialogSlug) ?? null,
     );
@@ -877,8 +1043,8 @@
 
             selectedYears.clear();
             selectedYears.add(tour.year);
-            selectedTourIds.clear();
-            selectedTourIds.add(tour.tourid);
+            selectedTourKeys.clear();
+            selectedTourKeys.add(tourKey(tour));
             selectionReady = true;
         });
     }
@@ -893,23 +1059,19 @@
 
         selectedYears.delete(year);
 
-        // Its tours go with it, unless another selected year shares one.
-        const stillOffered = new SvelteSet(
-            availableTours.map((tour) => tour.tourid),
-        );
-
+        // Its tours go with it.
         for (const tour of buildToursForYear(year)) {
-            if (!stillOffered.has(tour.tourid)) {
-                selectedTourIds.delete(tour.tourid);
-            }
+            selectedTourKeys.delete(tourKey(tour));
         }
     }
 
-    function toggleTour(tourid: number) {
-        if (selectedTourIds.has(tourid)) {
-            selectedTourIds.delete(tourid);
+    function toggleTour(tour: Tour) {
+        const key = tourKey(tour);
+
+        if (selectedTourKeys.has(key)) {
+            selectedTourKeys.delete(key);
         } else {
-            selectedTourIds.add(tourid);
+            selectedTourKeys.add(key);
         }
     }
 
@@ -978,11 +1140,20 @@
               ? [savedPrefs.year]
               : null;
 
-        const savedTourIds = Array.isArray(savedPrefs?.tourids)
+        const legacyTourIds = Array.isArray(savedPrefs?.tourids)
             ? savedPrefs.tourids.filter(isNumber)
             : isNumber(savedPrefs?.tourid)
               ? [savedPrefs.tourid]
               : [];
+
+        // Older cookies held bare tour ids, which applied to every saved year.
+        const savedTourKeys = Array.isArray(savedPrefs?.tours)
+            ? savedPrefs.tours.filter(
+                  (key): key is string => typeof key === 'string',
+              )
+            : (savedYears ?? []).flatMap((year) =>
+                  legacyTourIds.map((tourid) => tourKey({ year, tourid })),
+              );
 
         const knownYears = savedYears?.filter((year) => years.includes(year));
 
@@ -1004,8 +1175,8 @@
             loadYear(year);
         }
 
-        for (const tourid of savedTourIds) {
-            selectedTourIds.add(tourid);
+        for (const key of savedTourKeys) {
+            selectedTourKeys.add(key);
         }
 
         selectionReady = true;
@@ -1097,7 +1268,7 @@
 
         writePrefsCookie<StoredPrefs>(PREFS_COOKIE_NAME, {
             years: sortedSelectedYears,
-            tourids: [...selectedTourIds],
+            tours: [...selectedTourKeys],
             minTimesPlayed,
             minGap,
             debutFrom: debutFromDate,
@@ -1113,12 +1284,51 @@
 
 <AppHead />
 
+<!-- One button of a segmented control. -->
+{#snippet segmentButton(
+    label: string,
+    isActive: boolean,
+    onclick: () => void,
+    activeClass = 'bg-primary text-primary-foreground',
+)}
+    <button
+        type="button"
+        role="radio"
+        aria-checked={isActive}
+        {onclick}
+        class={[
+            'flex-1 rounded px-4 py-2.5 text-sm font-medium transition-colors md:flex-none md:px-3 md:py-1 md:text-xs',
+            isActive
+                ? activeClass
+                : 'text-muted-foreground hover:text-foreground',
+        ]}
+    >
+        {label}
+    </button>
+{/snippet}
+
+<!-- A labelled row in a filter card: what the control does on the left, the control under it. -->
+{#snippet fieldLabel(label: string, hint = '', forId = '')}
+    <div class="flex items-baseline justify-between gap-3">
+        {#if forId}
+            <label for={forId} class="text-sm font-medium">{label}</label>
+        {:else}
+            <span class="text-sm font-medium">{label}</span>
+        {/if}
+        {#if hint}
+            <span class="text-right text-xs tabular-nums text-muted-foreground">
+                {hint}
+            </span>
+        {/if}
+    </div>
+{/snippet}
+
 <div class="flex h-full flex-1 flex-col gap-4 p-4">
-    <div class="flex max-w-5xl items-center justify-between gap-4">
+    <div class="flex max-w-5xl flex-col items-start gap-2">
         <h1 class="text-2xl font-semibold">Song Checker</h1>
 
         {#if !initialLoading && yearsLoaded}
-            <div class="flex items-center gap-2">
+            <div class="flex flex-col sm:flex-row w-full justify-between sm:justify-end gap-2">
                 <button
                     type="button"
                     onclick={resetFilters}
@@ -1131,9 +1341,9 @@
                     onclick={() => (filtersOpen = !filtersOpen)}
                     aria-expanded={filtersOpen}
                     aria-controls="song-checker-filters"
-                    aria-label={filtersOpen ? 'Hide filters' : 'Show filters'}
-                    class="inline-flex h-10 w-10 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none md:h-9 md:w-9"
+                    class={OUTLINE_BUTTON_CLASSES}
                 >
+                    {filtersOpen ? 'Hide filters' : 'Show filters'}
                     <ChevronDown
                         class="size-4 transition-transform duration-200 {filtersOpen
                             ? 'rotate-180'
@@ -1150,518 +1360,274 @@
         {#if filtersOpen}
             <div
                 id="song-checker-filters"
-                class="flex flex-col gap-4"
+                class="grid max-w-5xl gap-4 md:grid-cols-2"
                 transition:slide={{ duration: 200 }}
             >
-                <div>
-                    <h2
-                        class="mb-2 text-sm font-semibold text-muted-foreground"
-                    >
-                        Browse by year
-                        <span class="font-normal">
-                            &middot; none selected shows every year
-                        </span>
-                    </h2>
-                    <div class="flex flex-wrap gap-1.5">
-                        {#each years as year (year)}
-                            <button
-                                type="button"
-                                onclick={() => toggleYear(year)}
-                                aria-pressed={selectedYears.has(year)}
-                                class={badgeClasses(selectedYears.has(year))}
-                            >
-                                {year}
-                            </button>
-                        {/each}
-                    </div>
-                </div>
+                <!-- Step 1: which shows to look at. -->
+                <section class={FILTER_CARD_CLASSES}>
+                    <h2 class={FILTER_HEADING_CLASSES}>1 · Shows</h2>
 
-                {#if availableTours.length}
-                    <div>
-                        <h2
-                            class="mb-2 text-sm font-semibold text-muted-foreground"
-                        >
-                            Tours in {sortedSelectedYears.join(', ')}
-                            <span class="font-normal">
-                                &middot; none selected shows every tour
-                            </span>
-                        </h2>
+                    <div class="flex flex-col gap-2">
+                        {@render fieldLabel(
+                            'Years',
+                            selectedYears.size
+                                ? `${selectedYears.size} selected`
+                                : 'None selected = every year',
+                        )}
                         <div class="flex flex-wrap gap-1.5">
-                            {#each availableTours as tour (`${tour.year}-${tour.tourid}`)}
+                            {#each years as year (year)}
                                 <button
                                     type="button"
-                                    onclick={() => toggleTour(tour.tourid)}
-                                    aria-pressed={selectedTourIds.has(
-                                        tour.tourid,
-                                    )}
+                                    onclick={() => toggleYear(year)}
+                                    aria-pressed={selectedYears.has(year)}
                                     class={badgeClasses(
-                                        selectedTourIds.has(tour.tourid),
+                                        selectedYears.has(year),
                                     )}
                                 >
-                                    {tour.tourname}
+                                    {year}
                                 </button>
                             {/each}
                         </div>
                     </div>
-                {/if}
+
+                    {#if availableTours.length}
+                        <div class="flex flex-col gap-2">
+                            {@render fieldLabel(
+                                'Tours',
+                                availableTours.some((tour) =>
+                                    selectedTourKeys.has(tourKey(tour)),
+                                )
+                                    ? ''
+                                    : 'None selected = every tour',
+                            )}
+                            <div class="flex flex-wrap gap-1.5">
+                                {#each availableTours as tour (tourKey(tour))}
+                                    <button
+                                        type="button"
+                                        onclick={() => toggleTour(tour)}
+                                        aria-pressed={selectedTourKeys.has(
+                                            tourKey(tour),
+                                        )}
+                                        class={badgeClasses(
+                                            selectedTourKeys.has(tourKey(tour)),
+                                        )}
+                                    >
+                                        {selectedYears.size > 1 &&
+                                        !tour.tourname.includes(
+                                            String(tour.year),
+                                        )
+                                            ? `${tour.tourname} (${tour.year})`
+                                            : tour.tourname}
+                                    </button>
+                                {/each}
+                            </div>
+                        </div>
+                    {/if}
+                </section>
+
+                <!-- Step 2: which songs from those shows to list. -->
+                <section class={FILTER_CARD_CLASSES}>
+                    <h2 class={FILTER_HEADING_CLASSES}>2 · Songs</h2>
+
+                    <div class="flex flex-col gap-2">
+                        {@render fieldLabel('Show songs that were')}
+                        <div
+                            role="radiogroup"
+                            aria-label="Played status"
+                            class={SEGMENTED_CLASSES}
+                        >
+                            {#each VIEW_MODE_OPTIONS as option (option.value)}
+                                {@render segmentButton(
+                                    option.label,
+                                    viewMode === option.value,
+                                    () => (viewMode = option.value),
+                                )}
+                            {/each}
+                        </div>
+                    </div>
+
+                    <div class="flex flex-col gap-2">
+                        {@render fieldLabel('Written by')}
+                        <div
+                            role="radiogroup"
+                            aria-label="Song source"
+                            class={SEGMENTED_CLASSES}
+                        >
+                            {#each SONG_SOURCE_OPTIONS as option (option.value)}
+                                {@render segmentButton(
+                                    option.label,
+                                    songSource === option.value,
+                                    () => (songSource = option.value),
+                                )}
+                            {/each}
+                        </div>
+                    </div>
+
+                    {#if allSongs}
+                        <div class="flex flex-col gap-1">
+                            {@render fieldLabel(
+                                'Played at least',
+                                `${minTimesPlayed}+ times all-time`,
+                                'min-times-played',
+                            )}
+                            <input
+                                id="min-times-played"
+                                type="range"
+                                min="0"
+                                max={maxTimesPlayed}
+                                step="5"
+                                bind:value={minTimesPlayed}
+                                class={SLIDER_CLASSES}
+                            />
+                        </div>
+
+                        <!-- A gap only means something for songs still waiting to be played. -->
+                        {#if viewMode === 'not-played'}
+                            <div class="flex flex-col gap-1">
+                                {@render fieldLabel(
+                                    'Gap of at least',
+                                    minGap === 0 ? 'Any' : `${minGap}+ shows`,
+                                    'min-gap',
+                                )}
+                                <input
+                                    id="min-gap"
+                                    type="range"
+                                    min="0"
+                                    max={maxGap}
+                                    step="5"
+                                    bind:value={minGap}
+                                    class={SLIDER_CLASSES}
+                                />
+                            </div>
+                        {/if}
+
+                        {#if debutBounds}
+                            <div class="flex flex-col gap-1">
+                                {@render fieldLabel(
+                                    'Debuted between',
+                                    `${isoDateFromDay(debutFromValue)} – ${isoDateFromDay(debutToValue)}`,
+                                )}
+                                <div class="relative h-6 md:h-5">
+                                    <div
+                                        class="absolute inset-x-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-secondary"
+                                    ></div>
+                                    <div
+                                        class="absolute top-1/2 h-2 -translate-y-1/2 rounded-full bg-primary/30"
+                                        style="left: {debutFromPercent}%; right: {100 -
+                                            debutToPercent}%"
+                                    ></div>
+                                    <input
+                                        type="range"
+                                        aria-label="Earliest debut date"
+                                        min={debutBounds.min}
+                                        max={debutBounds.max}
+                                        step="1"
+                                        value={debutFromValue}
+                                        oninput={onDebutFromInput}
+                                        class="{DUAL_RANGE_INPUT_CLASSES} {debutFromOnTop
+                                            ? 'z-30'
+                                            : 'z-10'}"
+                                    />
+                                    <input
+                                        type="range"
+                                        aria-label="Latest debut date"
+                                        min={debutBounds.min}
+                                        max={debutBounds.max}
+                                        step="1"
+                                        value={debutToValue}
+                                        oninput={onDebutToInput}
+                                        class="{DUAL_RANGE_INPUT_CLASSES} z-20"
+                                    />
+                                </div>
+                            </div>
+                        {/if}
+                    {/if}
+                </section>
             </div>
         {/if}
 
         <div class="max-w-5xl">
             {#if scopeLoading}
-                <p class="text-sm text-muted-foreground">Loading tour…</p>
+                <p class="text-sm text-muted-foreground">Loading shows…</p>
             {:else if years.length}
-                <!-- Named only for a single tour; a wider selection would be a long list of names, so it gets the show count instead. -->
-                <div class="text-center">
-                    {#if singleTour}
+                <!-- Results: what is being looked at, how many songs, and the number on each card. -->
+                <div
+                    class="flex flex-col gap-3 border-b pb-3 md:flex-row md:items-end md:justify-between"
+                >
+                    <div>
                         <h2 class="font-serif text-xl font-medium">
-                            {singleTour.tourname}
+                            {#if singleTour}
+                                {singleTour.tourname}
+                            {:else if isEverything}
+                                Every year
+                            {:else}
+                                {showCountLabel}
+                            {/if}
                         </h2>
                         <p class="text-sm text-muted-foreground">
-                            {singleTour.tourwhen}
+                            {#if singleTour}
+                                {singleTour.tourwhen} &middot; {showCountLabel}
+                                &middot;
+                            {/if}
+                            {allSongs ? songCountLabel : 'Loading songs…'}
                         </p>
-                    {:else if isEverything}
-                        <h2 class="font-serif text-xl font-medium">
-                            Every year
-                        </h2>
-                    {:else}
-                        <h2 class="font-serif text-xl font-medium">
-                            {tourShows.length} show{tourShows.length !== 1
-                                ? 's'
-                                : ''}
-                        </h2>
-                    {/if}
-                </div>
-
-                <div
-                    class="mt-4 flex flex-wrap items-center md:items-start gap-5"
-                >
-                    <!-- Played/Not Played -->
-                    <div
-                        class="flex w-full rounded-md border p-0.5 md:inline-flex md:w-auto"
-                    >
-                        <button
-                            type="button"
-                            onclick={() => (viewMode = 'all')}
-                            class={[
-                                'flex-1 rounded px-4 py-2.5 text-sm font-medium transition-colors md:flex-none md:px-3 md:py-1 md:text-xs',
-                                viewMode === 'all'
-                                    ? 'bg-primary text-primary-foreground'
-                                    : 'text-muted-foreground hover:text-foreground',
-                            ]}
-                        >
-                            All
-                        </button>
-                        <button
-                            type="button"
-                            onclick={() => (viewMode = 'played')}
-                            class={[
-                                'flex-1 rounded px-4 py-2.5 text-sm font-medium transition-colors md:flex-none md:px-3 md:py-1 md:text-xs',
-                                viewMode === 'played'
-                                    ? 'bg-primary text-primary-foreground'
-                                    : 'text-muted-foreground hover:text-foreground',
-                            ]}
-                        >
-                            Played
-                        </button>
-                        <button
-                            type="button"
-                            onclick={() => (viewMode = 'not-played')}
-                            class={[
-                                'flex-1 rounded px-4 py-2.5 text-sm font-medium transition-colors md:flex-none md:px-3 md:py-1 md:text-xs',
-                                viewMode === 'not-played'
-                                    ? 'bg-primary text-primary-foreground'
-                                    : 'text-muted-foreground hover:text-foreground',
-                            ]}
-                        >
-                            Not Played
-                        </button>
                     </div>
 
-                    <!-- Gap/Play Count -->
-                    <div
-                        class="flex w-full rounded-md border p-0.5 md:inline-flex md:w-auto"
-                    >
-                        {#if viewMode !== 'not-played'}
-                            <button
-                                type="button"
-                                onclick={() => (statShown = 'tour-plays')}
-                                class={[
-                                    'flex-1 rounded px-4 py-2.5 text-sm font-medium transition-colors md:flex-none md:px-3 md:py-1 md:text-xs',
-                                    statShown === 'tour-plays'
-                                        ? 'bg-sky-700 text-sky-100'
-                                        : 'text-muted-foreground hover:text-foreground',
-                                ]}
-                            >
-                                Tour Plays
-                            </button>
-                        {/if}
-                        <button
-                            type="button"
-                            onclick={() => (statShown = 'play-count')}
-                            class={[
-                                'flex-1 rounded px-4 py-2.5 text-sm font-medium transition-colors md:flex-none md:px-3 md:py-1 md:text-xs',
-                                statShown === 'play-count'
-                                    ? 'bg-fuchsia-700 text-fuchsia-200'
-                                    : 'text-muted-foreground hover:text-foreground',
-                            ]}
-                        >
-                            Total Plays
-                        </button>
-                        <button
-                            type="button"
-                            onclick={() => (statShown = 'gap')}
-                            class={[
-                                'flex-1 rounded px-4 py-2.5 text-sm font-medium transition-colors md:flex-none md:px-3 md:py-1 md:text-xs',
-                                statShown === 'gap'
-                                    ? 'bg-green-700 text-green-100'
-                                    : 'text-muted-foreground hover:text-foreground',
-                            ]}
-                        >
-                            Gap
-                        </button>
-                        <button
-                            type="button"
-                            onclick={() => (statShown = 'debut-year')}
-                            class={[
-                                'flex-1 rounded px-4 py-2.5 text-sm font-medium transition-colors md:flex-none md:px-3 md:py-1 md:text-xs',
-                                statShown === 'debut-year'
-                                    ? 'bg-slate-700 text-slate-100'
-                                    : 'text-muted-foreground hover:text-foreground',
-                            ]}
-                        >
-                            Debut Year
-                        </button>
-                        <button
-                            type="button"
-                            onclick={() => (statShown = null)}
-                            class={[
-                                'flex-1 rounded px-4 py-2.5 text-sm font-medium transition-colors md:flex-none md:px-3 md:py-1 md:text-xs',
-                                statShown === null
-                                    ? 'bg-primary text-primary-foreground'
-                                    : 'text-muted-foreground hover:text-foreground',
-                            ]}
-                        >
-                            Off
-                        </button>
-                    </div>
-                </div>
-
-                {#snippet playCountSlider()}
-                    <div class="flex items-center justify-between gap-3">
-                        <label
-                            for="min-times-played"
-                            class="shrink-0 text-sm text-muted-foreground md:text-xs"
-                        >
-                            All-time Play Count
-                        </label>
-                        <span
-                            class="shrink-0 text-sm font-medium tabular-nums text-muted-foreground md:text-xs"
-                        >
-                            {minTimesPlayed}+ times
+                    <div class="flex flex-col gap-1 md:items-end">
+                        <span class="text-xs text-muted-foreground">
+                            Number on each song tile
                         </span>
-                    </div>
-
-                    <input
-                        id="min-times-played"
-                        type="range"
-                        min="0"
-                        max={maxTimesPlayed}
-                        step="5"
-                        bind:value={minTimesPlayed}
-                        class="h-6 w-full cursor-pointer appearance-none bg-transparent [&::-webkit-slider-runnable-track]:h-2 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-secondary [&::-webkit-slider-thumb]:-mt-2 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-moz-range-track]:h-2 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-secondary [&::-moz-range-thumb]:h-6 [&::-moz-range-thumb]:w-6 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-primary md:h-5 md:[&::-webkit-slider-thumb]:-mt-1.5 md:[&::-webkit-slider-thumb]:h-5 md:[&::-webkit-slider-thumb]:w-5 md:[&::-moz-range-thumb]:h-5 md:[&::-moz-range-thumb]:w-5"
-                    />
-                {/snippet}
-
-                {#snippet debutRangeSlider()}
-                    {#if debutBounds}
-                        <div class="flex items-center justify-between gap-3">
-                            <span
-                                class="shrink-0 text-sm text-muted-foreground md:text-xs"
-                            >
-                                Debut Date
-                            </span>
-                            <span
-                                class="shrink-0 text-sm font-medium tabular-nums text-muted-foreground md:text-xs"
-                            >
-                                {isoDateFromDay(debutFromValue)} &ndash; {isoDateFromDay(
-                                    debutToValue,
+                        <div
+                            role="radiogroup"
+                            aria-label="Number on each song tile"
+                            class={SEGMENTED_CLASSES}
+                        >
+                            {#each statOptions as option (option.label)}
+                                {@render segmentButton(
+                                    option.label,
+                                    statShown === option.value,
+                                    () => (statShown = option.value),
+                                    option.activeClass,
                                 )}
-                            </span>
+                            {/each}
                         </div>
+                    </div>
+                </div>
 
-                        <div class="relative h-6 md:h-5">
-                            <div
-                                class="absolute inset-x-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-secondary"
-                            ></div>
-                            <div
-                                class="absolute top-1/2 h-2 -translate-y-1/2 rounded-full bg-primary/30"
-                                style="left: {debutFromPercent}%; right: {100 -
-                                    debutToPercent}%"
-                            ></div>
-                            <input
-                                type="range"
-                                aria-label="Earliest debut date"
-                                min={debutBounds.min}
-                                max={debutBounds.max}
-                                step="1"
-                                value={debutFromValue}
-                                oninput={onDebutFromInput}
-                                class="{DUAL_RANGE_INPUT_CLASSES} {debutFromOnTop
-                                    ? 'z-30'
-                                    : 'z-10'}"
-                            />
-                            <input
-                                type="range"
-                                aria-label="Latest debut date"
-                                min={debutBounds.min}
-                                max={debutBounds.max}
-                                step="1"
-                                value={debutToValue}
-                                oninput={onDebutToInput}
-                                class="{DUAL_RANGE_INPUT_CLASSES} z-20"
-                            />
-                        </div>
-                    {/if}
-                {/snippet}
-
-                {#snippet songSourceToggle()}
+                {#if !allSongs}
+                    <p class="mt-4 text-sm text-muted-foreground">
+                        Loading full song catalog…
+                    </p>
+                {:else if songCards.length}
                     <div
-                        role="radiogroup"
-                        aria-label="Song source"
-                        class="mb-6 mt-4 flex w-full rounded-md border p-0.5 md:inline-flex md:w-auto md:self-start"
+                        class="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
                     >
-                        {#each SONG_SOURCE_OPTIONS as option (option.value)}
+                        {#each songCards as card (card.slug)}
                             <button
                                 type="button"
-                                role="radio"
-                                aria-checked={songSource === option.value}
-                                onclick={() => (songSource = option.value)}
-                                class={[
-                                    'flex-1 rounded px-4 py-2.5 text-sm font-medium transition-colors md:flex-none md:px-3 md:py-1 md:text-xs',
-                                    songSource === option.value
-                                        ? 'bg-primary text-primary-foreground'
-                                        : 'text-muted-foreground hover:text-foreground',
-                                ]}
+                                onclick={() => openSongDialog(card.slug)}
+                                class="flex items-baseline cursor-pointer ring-1 ring-slate-500/10 justify-between gap-2 rounded p-3 text-left text-base hover:bg-accent {liveClasses(
+                                    card.slug,
+                                ) ||
+                                    (card.muted
+                                        ? 'text-muted-foreground'
+                                        : 'hover:text-primary')}"
                             >
-                                {option.label}
+                                <span class="truncate">{card.song}</span>
+                                {#if statShown !== null}
+                                    <span
+                                        class="shrink-0 text-center text-xs font-medium ring-1 rounded-4xl w-[18%] py-0.5 {statBadgeClass}"
+                                    >
+                                        {statValue(card)}
+                                    </span>
+                                {/if}
                             </button>
                         {/each}
                     </div>
-                {/snippet}
-
-                <!-- Show count (left off for every year, which loads no shows) and how many songs the list holds. -->
-                {#snippet listSummary(songCount: number, suffix: string)}
-                    <p class="text-sm text-muted-foreground">
-                        {#if !isEverything}
-                            {tourShows.length} show{tourShows.length !== 1
-                                ? 's'
-                                : ''} &middot;
-                        {/if}
-                        {songCount}
-                        {songSource === 'phish'
-                            ? 'Phish '
-                            : songSource === 'covers'
-                              ? 'cover '
-                              : ''}song{songCount !== 1 ? 's' : ''}{suffix}
-                    </p>
-                {/snippet}
-
-                {#if viewMode === 'played'}
-                    {#if allSongs}
-                        <div class="mt-3 flex flex-col gap-3">
-                            {@render playCountSlider()}
-                            {@render debutRangeSlider()}
-                            {@render songSourceToggle()}
-                        </div>
-                    {/if}
-                    {@render listSummary(playedAlphabetical.length, ' played')}
-                    {#if playedAlphabetical.length}
-                        <div
-                            class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
-                        >
-                            {#each playedAlphabetical as row (row.slug)}
-                                <button
-                                    type="button"
-                                    onclick={() => openSongDialog(row.slug)}
-                                    class="flex items-baseline cursor-pointer ring-1 ring-slate-500/10 justify-between gap-2 rounded p-3 text-left text-base hover:bg-accent hover:text-primary {liveClasses(
-                                        row.slug,
-                                    )}"
-                                >
-                                    <span class="truncate">{row.song}</span>
-                                    {#if statShown === 'tour-plays'}
-                                        <span
-                                            class="shrink-0 text-center text-xs font-medium ring-1 ring-sky-500/30 text-sky-400/60 rounded-4xl w-[18%] py-0.5"
-                                        >
-                                            {row.count}
-                                        </span>
-                                    {:else if statShown === 'play-count'}
-                                        <span
-                                            class="shrink-0 text-center text-xs font-medium ring-1 ring-fuchsia-500/30 text-fuchsia-500/60 rounded-4xl w-[18%] py-0.5"
-                                        >
-                                            {catalogBySlug.get(row.slug)
-                                                ?.times_played ?? '—'}
-                                        </span>
-                                    {:else if statShown === 'gap'}
-                                        <span
-                                            class="shrink-0 text-center text-xs font-medium ring-1 ring-green-800/30 text-green-400/60 rounded-4xl w-[18%] py-0.5"
-                                        >
-                                            {liveGapBySlug.get(row.slug) ??
-                                                catalogBySlug.get(row.slug)
-                                                    ?.gap ??
-                                                '—'}
-                                        </span>
-                                    {:else if statShown === 'debut-year'}
-                                        <span
-                                            class="shrink-0 text-center text-xs font-medium ring-1 ring-slate-500/30 rounded-4xl w-[18%] py-0.5"
-                                        >
-                                            {catalogBySlug
-                                                .get(row.slug)
-                                                ?.debut.slice(0, 4) || '—'}
-                                        </span>
-                                    {/if}
-                                </button>
-                            {/each}
-                        </div>
-                    {:else}
-                        <p class="mt-3 text-sm text-muted-foreground">
-                            No songs found for this selection.
-                        </p>
-                    {/if}
-                {:else if viewMode === 'all'}
-                    {#if allSongs}
-                        <div class="mt-3 flex flex-col gap-3">
-                            {@render playCountSlider()}
-                            {@render debutRangeSlider()}
-                            {@render songSourceToggle()}
-                        </div>
-                        {@render listSummary(allSorted.length, '')}
-                        <div
-                            class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
-                        >
-                            {#each allSorted as song (song.slug)}
-                                <button
-                                    type="button"
-                                    onclick={() => openSongDialog(song.slug)}
-                                    class="flex items-baseline cursor-pointer ring-1 ring-slate-500/10 justify-between gap-2 rounded p-3 text-left text-base hover:bg-accent {liveClasses(
-                                        song.slug,
-                                    ) ||
-                                        (tourCountBySlug.has(song.slug)
-                                            ? 'hover:text-primary'
-                                            : 'text-muted-foreground')}"
-                                >
-                                    <span class="truncate">{song.song}</span>
-                                    {#if statShown === 'tour-plays'}
-                                        <span
-                                            class="shrink-0 text-center text-xs font-medium ring-1 ring-sky-500/30 text-sky-400/60 rounded-4xl w-[18%] py-0.5"
-                                        >
-                                            {tourCountBySlug.get(song.slug) ??
-                                                0}
-                                        </span>
-                                    {:else if statShown === 'play-count'}
-                                        <span
-                                            class="shrink-0 text-center text-xs font-medium ring-1 ring-fuchsia-500/30 text-fuchsia-500/60 rounded-4xl w-[18%] py-0.5"
-                                        >
-                                            {song.times_played}
-                                        </span>
-                                    {:else if statShown === 'gap'}
-                                        <span
-                                            class="shrink-0 text-center text-xs font-medium ring-1 ring-green-800/30 text-green-400/60 rounded-4xl w-[18%] py-0.5"
-                                        >
-                                            {liveGapBySlug.get(song.slug) ??
-                                                song.gap}
-                                        </span>
-                                    {:else if statShown === 'debut-year'}
-                                        <span
-                                            class="shrink-0 text-center text-xs font-medium ring-1 ring-slate-500/30 rounded-4xl w-[18%] py-0.5"
-                                        >
-                                            {song.debut.slice(0, 4) || '—'}
-                                        </span>
-                                    {/if}
-                                </button>
-                            {/each}
-                        </div>
-                    {:else}
-                        <p class="mt-3 text-sm text-muted-foreground">
-                            Loading full song catalog…
-                        </p>
-                    {/if}
-                {:else if allSongsLoading}
-                    <p class="mt-3 text-sm text-muted-foreground">
-                        Loading full song catalog…
-                    </p>
                 {:else}
-                    <div class="mt-3 flex flex-col gap-3">
-                        {@render playCountSlider()}
-                        {@render debutRangeSlider()}
-
-                        <div class="flex items-center justify-between gap-3">
-                            <label
-                                for="min-gap"
-                                class="shrink-0 text-sm text-muted-foreground md:text-xs"
-                            >
-                                Minimum Gap
-                            </label>
-                            <span
-                                class="shrink-0 text-sm font-medium tabular-nums text-muted-foreground md:text-xs"
-                            >
-                                {minGap === 0 ? '∞' : `${minGap}+ shows`}
-                            </span>
-                        </div>
-
-                        <input
-                            id="min-gap"
-                            type="range"
-                            min="0"
-                            max={maxGap}
-                            step="5"
-                            bind:value={minGap}
-                            class="h-6 w-full cursor-pointer appearance-none bg-transparent [&::-webkit-slider-runnable-track]:h-2 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-secondary [&::-webkit-slider-thumb]:-mt-2 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-moz-range-track]:h-2 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-secondary [&::-moz-range-thumb]:h-6 [&::-moz-range-thumb]:w-6 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-primary md:h-5 md:[&::-webkit-slider-thumb]:-mt-1.5 md:[&::-webkit-slider-thumb]:h-5 md:[&::-webkit-slider-thumb]:w-5 md:[&::-moz-range-thumb]:h-5 md:[&::-moz-range-thumb]:w-5"
-                        />
-
-                        {@render songSourceToggle()}
-                    </div>
-
-                    <div class="flex flex-col gap-2">
-                        {@render listSummary(notPlayed.length, ' not played')}
-                        <div
-                            class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
-                        >
-                            {#each notPlayed as song (song.slug)}
-                                <button
-                                    type="button"
-                                    onclick={() => openSongDialog(song.slug)}
-                                    class="flex items-baseline cursor-pointer ring-1 ring-slate-500/10 justify-between gap-2 rounded p-3 text-left text-base hover:bg-accent text-primary {liveClasses(
-                                        song.slug,
-                                    ) || 'text-muted-foreground'}"
-                                >
-                                    <span class="truncate">{song.song}</span>
-                                    {#if statShown != null}
-                                        {#if statShown === 'play-count'}
-                                            <span
-                                                class="shrink-0 text-center text-xs font-medium ring-1 ring-fuchsia-500/30 text-fuchsia-500/60 rounded-4xl w-[18%] py-0.5"
-                                            >
-                                                {song.times_played}
-                                            </span>
-                                        {:else if statShown === 'gap'}
-                                            <span
-                                                class="shrink-0 text-center text-xs font-medium ring-1 ring-green-800/30 text-green-400/60 rounded-4xl w-[18%] py-0.5"
-                                            >
-                                                {liveGapBySlug.get(song.slug) ??
-                                                    song.gap}
-                                            </span>
-                                        {:else if statShown === 'debut-year'}
-                                            <span
-                                                class="shrink-0 text-center text-xs font-medium ring-1 ring-slate-500/30 rounded-4xl w-[18%] py-0.5"
-                                            >
-                                                {song.debut.slice(0, 4) || '—'}
-                                            </span>
-                                        {/if}
-                                    {/if}
-                                </button>
-                            {/each}
-                        </div>
-                    </div>
+                    <p class="mt-4 text-sm text-muted-foreground">
+                        No songs match these filters.
+                    </p>
                 {/if}
 
                 {#if tourShows.length}

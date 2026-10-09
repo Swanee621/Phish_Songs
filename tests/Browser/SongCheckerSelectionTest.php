@@ -18,12 +18,19 @@ beforeEach(function () {
 });
 
 /**
- * One show on its own named tour, with a single song played at it.
+ * One show on its own named tour (or an existing one), with a single song
+ * played at it.
  */
-function seedTourWithSong(int $year, string $tourName, string $songName): void
+function seedTourWithSong(int $year, string|Tour $tour, string $songName, ?string $showdate = null): void
 {
-    $tour = Tour::factory()->create(['tourname' => $tourName, 'tourwhen' => $tourName]);
-    $show = Show::factory()->forYear($year)->create(['tourid' => $tour->tourid]);
+    if (is_string($tour)) {
+        $tour = Tour::factory()->create(['tourname' => $tour, 'tourwhen' => $tour]);
+    }
+
+    $show = Show::factory()->forYear($year)->create(array_filter([
+        'tourid' => $tour->tourid,
+        'showdate' => $showdate,
+    ]));
     $song = Song::factory()->create(['song' => $songName, 'times_played' => 50]);
 
     SetlistEntry::factory()->forShow($show, 1)->create([
@@ -50,6 +57,30 @@ test('a second year widens the played list to both years', function () {
         ->assertDontSee('Previous tour')
         ->assertSee('Newer Song')
         ->assertSee('Older Song')
+        ->assertNoJavaScriptErrors();
+});
+
+/*
+ * phish.net files every one-off show in every year under the same "Not Part of
+ * a Tour" id, so picking it in one year must not pick it in the others.
+ */
+test('picking a tour shared across years only picks it in that year', function () {
+    $thisYear = (int) date('Y');
+    $lastYear = $thisYear - 1;
+    $notPartOfATour = Tour::factory()->create(['tourname' => 'Not Part of a Tour', 'tourwhen' => 'Various']);
+
+    seedTourWithSong($thisYear, 'Current Run', 'Current Run Song', "{$thisYear}-08-01");
+    seedTourWithSong($thisYear, $notPartOfATour, 'This Year One-Off', "{$thisYear}-01-15");
+    seedTourWithSong($lastYear, $notPartOfATour, 'Last Year One-Off', "{$lastYear}-01-15");
+
+    $page = visit('/');
+
+    $page->click('Played')
+        ->click((string) $lastYear)
+        ->click("Not Part of a Tour ({$lastYear})")
+        ->assertSee('Current Run Song')
+        ->assertSee('Last Year One-Off')
+        ->assertDontSee('This Year One-Off')
         ->assertNoJavaScriptErrors();
 });
 

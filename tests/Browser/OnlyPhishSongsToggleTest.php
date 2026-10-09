@@ -16,7 +16,7 @@ beforeEach(function () {
     }
 });
 
-test('the only phish songs checkbox is offered on every song checker tab', function (string $tab) {
+test('the phish / covers / both control is offered on every song checker tab', function (string $tab) {
     $show = Show::factory()->forYear((int) date('Y'))->create();
     SetlistEntry::factory()->forShow($show, 1)->create();
     Song::factory()->count(3)->create();
@@ -24,6 +24,47 @@ test('the only phish songs checkbox is offered on every song checker tab', funct
     $page = visit('/');
 
     $page->click($tab)
-        ->assertSee('Only Phish Songs')
+        ->assertSee('Phish Songs')
+        ->assertSee('Covers')
+        ->assertSee('Both')
         ->assertNoJavaScriptErrors();
 })->with(['All', 'Played', 'Not Played']);
+
+test('the covers option keeps only songs by other artists', function () {
+    $show = Show::factory()->forYear((int) date('Y'))->create();
+    SetlistEntry::factory()->forShow($show, 1)->create();
+    Song::factory()->create(['song' => 'Original Tune', 'artist' => 'Phish', 'times_played' => 50]);
+    Song::factory()->create(['song' => 'Borrowed Tune', 'artist' => 'Talking Heads', 'times_played' => 50]);
+
+    $page = visit('/');
+
+    $page->click('All')
+        ->click('Covers')
+        ->assertSee('1 cover song')
+        ->assertSee('Borrowed Tune')
+        ->assertDontSee('Original Tune')
+        ->click('Phish Songs')
+        ->assertSee('Phish songs')
+        ->assertSee('Original Tune')
+        ->assertDontSee('Borrowed Tune')
+        ->assertNoJavaScriptErrors();
+});
+
+test('the phish songs option still filters covers out of search results', function () {
+    $show = Show::factory()->forYear((int) date('Y'))->create();
+    SetlistEntry::factory()->forShow($show, 1)->create();
+    Song::factory()->create(['song' => 'Rolling Original', 'artist' => 'Phish', 'times_played' => 50]);
+    Song::factory()->create(['song' => 'Rolling Cover', 'artist' => 'The Rolling Stones', 'times_played' => 50]);
+
+    $page = visit('/');
+
+    // Clicking the control blurs the search box, closing its dropdown, so
+    // only the song grid is left to assert against.
+    $page->click('All')
+        ->type('input[aria-label="Search"]', 'rolling')
+        ->click('Phish Songs')
+        ->wait(0.5)
+        ->assertSee('Rolling Original')
+        ->assertDontSee('Rolling Cover')
+        ->assertNoJavaScriptErrors();
+});

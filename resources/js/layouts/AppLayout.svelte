@@ -8,6 +8,7 @@
     import ScrollingText from '@/components/ScrollingText.svelte';
     import SearchBox from '@/components/SearchBox.svelte';
     import { sharedLiveStatus } from '@/lib/live-poll.svelte';
+    import { searchState } from '@/lib/search.svelte';
     import { sidebar } from '@/lib/sidebar.svelte';
 
     let { children }: { children?: Snippet } = $props();
@@ -15,6 +16,18 @@
     const sidebarEnabled = $derived(page.props.sidebarEnabled);
     const liveSongDisplay = $derived(page.props.liveSongDisplay);
     const liveSongMaxLines = $derived(page.props.liveSongMaxLines);
+
+    let searchExpanded = $state(false);
+
+    /*
+     * While songs are on stage the search box shrinks to an icon so they get
+     * the header; it stays open while focused or holding a query.
+     */
+    const searchCollapsed = $derived(
+        !!sharedLiveStatus.currentSongs &&
+            !searchExpanded &&
+            !searchState.query.trim(),
+    );
 
     if (page.props.sidebarEnabled && typeof window !== 'undefined') {
         sidebar.restore(!page.props.sidebarCollapsed);
@@ -60,7 +73,7 @@
                         What is on stage right now, strung across segues by the
                         server. Only present while a show is being played.
                       -->
-                    {#if sharedLiveStatus.currentSongs}
+                    {#if sharedLiveStatus.currentSongs && searchCollapsed}
                         <div
                             class="flex min-w-0 items-center gap-2"
                             aria-live="polite"
@@ -89,7 +102,10 @@
                         </div>
                     {/if}
                 </div>
-                <SearchBox />
+                <SearchBox
+                    collapsed={searchCollapsed}
+                    bind:expanded={searchExpanded}
+                />
             </header>
 
             {@render children?.()}

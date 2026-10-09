@@ -21,6 +21,15 @@
         country: string | null;
     };
 
+    /*
+     * `collapsed` shrinks the box to just its magnifying glass; focusing it
+     * (tapping the icon) flips `expanded` so the parent can make room.
+     */
+    let {
+        collapsed = false,
+        expanded = $bindable(false),
+    }: { collapsed?: boolean; expanded?: boolean } = $props();
+
     const DEBOUNCE_MS = 200;
 
     /*
@@ -98,19 +107,36 @@
         [hit.venuename, hit.city, hit.state].filter(Boolean).join(', ');
 </script>
 
-<div class="relative ml-auto w-full max-w-xs min-w-0">
+<div
+    class={[
+        'relative ml-auto min-w-0',
+        collapsed ? 'w-9 shrink-0' : 'w-full max-w-xs',
+    ]}
+>
     <Search
         class="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
     />
     <input
         type="search"
         bind:value={searchState.query}
-        onfocus={() => (focused = true)}
-        onblur={() => setTimeout(() => (focused = false), 150)}
+        onfocus={() => {
+            focused = true;
+            expanded = true;
+        }}
+        onblur={() =>
+            setTimeout(() => {
+                focused = false;
+                expanded = false;
+            }, 150)}
         onkeydown={(event) => event.key === 'Escape' && (focused = false)}
-        placeholder="Search songs, venues, artists, dates…"
+        placeholder={collapsed ? '' : 'Search songs, venues, artists, dates…'}
         aria-label="Search"
-        class="h-9 w-full rounded-md border border-input bg-transparent pr-3 pl-8 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        class={[
+            'h-9 w-full rounded-md border bg-transparent text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50',
+            collapsed
+                ? 'cursor-pointer border-transparent pr-0 pl-9 hover:bg-accent'
+                : 'border-input pr-3 pl-8',
+        ]}
     />
 
     {#if showPanel}

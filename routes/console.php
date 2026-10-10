@@ -18,3 +18,11 @@ Schedule::command('phish:tick')
     ->everyMinute()
     ->withoutOverlapping(10)
     ->onOneServer();
+
+/*
+ * MaxMind republishes GeoLite2 twice a week; once a week is plenty for
+ * city-level visitor stats and keeps well inside the free download quota.
+ */
+Schedule::command('geoip:update')
+    ->weeklyOn(0, '04:30')
+    ->onOneServer();

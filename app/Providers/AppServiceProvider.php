@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Services\GeoIp\GeoIpResolver;
+use App\Services\GeoIp\MaxMindResolver;
 use App\Services\PhishNet\PhishNetClient;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
@@ -21,6 +23,10 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->singleton(PhishNetClient::class, fn () => new PhishNetClient(
             config('services.phishnet.key'),
+        ));
+
+        $this->app->singleton(GeoIpResolver::class, fn () => new MaxMindResolver(
+            config('services.maxmind.database_path'),
         ));
     }
 

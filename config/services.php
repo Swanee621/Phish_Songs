@@ -45,6 +45,18 @@ return [
         'ignored_ips' => env('NIGHTWATCH_IGNORED_IPS', ''),
     ],
 
+    'maxmind' => [
+        /*
+         * Free GeoLite2 account credentials. `geoip:update` uses them to fetch
+         * the city database that visitor addresses are resolved against
+         * locally; nothing about a visitor is ever sent to MaxMind.
+         */
+        'account_id' => env('MAXMIND_ACCOUNT_ID'),
+        'license_key' => env('MAXMIND_LICENSE_KEY'),
+        'edition' => env('MAXMIND_EDITION', 'GeoLite2-City'),
+        'database_path' => env('MAXMIND_DATABASE_PATH', storage_path('app/geoip/GeoLite2-City.mmdb')),
+    ],
+
     'phishnet' => [
         'key' => env('PHISHNET_API_KEY'),
         'salt' => env('PHISHNET_API_SALT'),

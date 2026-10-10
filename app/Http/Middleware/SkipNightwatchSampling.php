@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\IgnoredIps;
 use Closure;
 use Illuminate\Http\Request;
 use Laravel\Nightwatch\Facades\Nightwatch;
@@ -20,23 +21,10 @@ class SkipNightwatchSampling
 {
     public function handle(Request $request, Closure $next): Response
     {
-        if (
-            $request->is('data/*') ||
-            in_array($request->ip(), $this->ignoredIps(), true)
-        ) {
+        if ($request->is('data/*') || IgnoredIps::contains($request->ip())) {
             Nightwatch::dontSample();
         }
 
         return $next($request);
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    protected function ignoredIps(): array
-    {
-        $configured = (string) config('services.nightwatch.ignored_ips', '');
-
-        return array_values(array_filter(array_map('trim', explode(',', $configured))));
     }
 }

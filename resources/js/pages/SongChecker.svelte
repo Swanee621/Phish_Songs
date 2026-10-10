@@ -15,6 +15,7 @@
     import RangeSlider, { clampRange } from '@/components/RangeSlider.svelte';
     import SetlistView from '@/components/SetlistView.svelte';
     import SongHistoryDialog from '@/components/SongHistoryDialog.svelte';
+    import { dayFromIsoDate, isoDateFromDay } from '@/lib/day';
     import { guestAppearances as guestAppearanceSettings } from '@/lib/guest-appearances.svelte';
     import { createScrollMemory, lastVisit, toPath } from '@/lib/last-visit';
     import { createLivePoll, formatCountdown } from '@/lib/live-poll.svelte';
@@ -238,15 +239,6 @@
     const matchesSongSource = (artist: string): boolean =>
         songSource === 'both' ||
         (songSource === 'phish') === (artist === 'Phish');
-
-    const DAY_MS = 86_400_000;
-
-    /** ISO dates compare lexicographically, so days only matter for the slider. */
-    const dayFromIsoDate = (date: string): number =>
-        Math.round(Date.parse(date) / DAY_MS);
-
-    const isoDateFromDay = (day: number): string =>
-        new Date(day * DAY_MS).toISOString().slice(0, 10);
 
     const savedDebutDay = (value: unknown): number | null => {
         if (typeof value !== 'string' || value === '') {

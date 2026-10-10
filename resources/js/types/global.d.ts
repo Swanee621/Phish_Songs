@@ -18,6 +18,9 @@ declare module '@inertiajs/core' {
     export interface InertiaConfig {
         sharedPageProps: {
             name: string;
+            auth: {
+                user: { id: number; name: string; email: string } | null;
+            };
             sidebarCollapsed: boolean;
             sidebarEnabled: boolean;
             liveSongDisplay: 'scroll' | 'wrap';

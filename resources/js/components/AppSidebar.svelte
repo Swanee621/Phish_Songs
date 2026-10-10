@@ -1,8 +1,10 @@
 <script lang="ts">
-    import { Link, page } from '@inertiajs/svelte';
+    import { Link, page, router } from '@inertiajs/svelte';
     import BarChart3 from 'lucide-svelte/icons/bar-chart-3';
     import CalendarDays from 'lucide-svelte/icons/calendar-days';
     import ListMusic from 'lucide-svelte/icons/list-music';
+    import LogOut from 'lucide-svelte/icons/log-out';
+    import MapIcon from 'lucide-svelte/icons/map';
     import type { Component, SvelteComponent } from 'svelte';
     import { cubicOut } from 'svelte/easing';
     import { fade, fly } from 'svelte/transition';
@@ -11,7 +13,7 @@
         setlistBrowser,
     } from '@/actions/App/Http/Controllers/AppController';
     import { sidebar } from '@/lib/sidebar.svelte';
-    import { home } from '@/routes';
+    import { home, logout, stats } from '@/routes';
 
     /** lucide-svelte ships icons in both shapes depending on the build. */
     type NavIcon =
@@ -24,7 +26,10 @@
         icon: NavIcon;
     };
 
-    const navItems: NavItem[] = [
+    const user = $derived(page.props.auth?.user ?? null);
+
+    /** The stats page only exists for whoever is logged in. */
+    const navItems = $derived<NavItem[]>([
         { title: 'Song Checker', href: home().url, icon: BarChart3 },
         {
             title: 'Setlist Browser',
@@ -36,7 +41,10 @@
             href: recentSetlists().url,
             icon: CalendarDays,
         },
-    ];
+        ...(user
+            ? [{ title: 'Visitor Stats', href: stats().url, icon: MapIcon }]
+            : []),
+    ]);
 
     const currentPath = $derived.by(() => {
         try {
@@ -58,6 +66,20 @@
         'bg-sidebar-accent font-medium text-sidebar-accent-foreground';
 </script>
 
+{#snippet tooltip(title: string)}
+    {#if showTooltips}
+        <span
+            class="pointer-events-none absolute top-1/2 left-full z-50 ml-2 w-fit -translate-y-1/2 rounded-md bg-foreground px-3 py-1.5 text-xs text-balance text-background opacity-0 transition-opacity group-hover/menu-item:opacity-100 group-focus-within/menu-item:opacity-100"
+            role="tooltip"
+        >
+            <span
+                class="absolute top-1/2 -left-1 size-2 -translate-y-1/2 rotate-45 bg-foreground"
+            ></span>
+            {title}
+        </span>
+    {/if}
+{/snippet}
+
 {#snippet nav()}
     <div
         class="flex min-h-0 flex-1 flex-col gap-2 overflow-auto group-data-[collapsible=icon]:overflow-hidden"
@@ -77,21 +99,28 @@
                             <span>{item.title}</span>
                         </Link>
 
-                        {#if showTooltips}
-                            <span
-                                class="pointer-events-none absolute top-1/2 left-full z-50 ml-2 w-fit -translate-y-1/2 rounded-md bg-foreground px-3 py-1.5 text-xs text-balance text-background opacity-0 transition-opacity group-hover/menu-item:opacity-100 group-focus-within/menu-item:opacity-100"
-                                role="tooltip"
-                            >
-                                <span
-                                    class="absolute top-1/2 -left-1 size-2 -translate-y-1/2 rotate-45 bg-foreground"
-                                ></span>
-                                {item.title}
-                            </span>
-                        {/if}
+                        {@render tooltip(item.title)}
                     </li>
                 {/each}
             </ul>
         </div>
+
+        {#if user}
+            <div class="mt-auto p-2">
+                <div class="group/menu-item relative">
+                    <button
+                        type="button"
+                        class={menuButtonClasses}
+                        onclick={() => router.post(logout.url())}
+                    >
+                        <LogOut class="size-4 shrink-0" />
+                        <span>Log out</span>
+                    </button>
+
+                    {@render tooltip('Log out')}
+                </div>
+            </div>
+        {/if}
     </div>
 {/snippet}
 

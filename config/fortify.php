@@ -73,7 +73,7 @@ return [
     |
     */
 
-    'home' => '/',
+    'home' => '/stats',
 
     /*
     |--------------------------------------------------------------------------
@@ -143,8 +143,7 @@ return [
     */
 
     'features' => [
-        Features::resetPasswords(),
-        Features::emailVerification(),
+        // Login only: accounts come from `php artisan user:create`.
     ],
 
 ];

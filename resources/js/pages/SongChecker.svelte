@@ -11,9 +11,11 @@
         songs as songsRoute
     } from '@/actions/App/Http/Controllers/AppController';
     import AppHead from '@/components/AppHead.svelte';
+    import GuestAppearancesToggle from '@/components/GuestAppearancesToggle.svelte';
     import RangeSlider, { clampRange } from '@/components/RangeSlider.svelte';
     import SetlistView from '@/components/SetlistView.svelte';
     import SongHistoryDialog from '@/components/SongHistoryDialog.svelte';
+    import { guestAppearances as guestAppearanceSettings } from '@/lib/guest-appearances.svelte';
     import { createScrollMemory, lastVisit, toPath } from '@/lib/last-visit';
     import { createLivePoll, formatCountdown } from '@/lib/live-poll.svelte';
     import { readPrefsCookie, writePrefsCookie } from '@/lib/prefs-cookie';
@@ -43,11 +45,14 @@
     const LATEST_SONG_CLASSES =
         'bg-amber-500/15 font-medium text-amber-700 ring-1 ring-amber-500/40 dark:text-amber-300';
 
-    const badgeClasses = (isSelected: boolean): string =>
+    /** Guest-only years and tours are muted, as on the setlist browser. */
+    const badgeClasses = (isSelected: boolean, isGuest = false): string =>
         `${BADGE_CLASSES} ${
             isSelected
                 ? 'bg-primary text-primary-foreground'
-                : 'bg-secondary text-secondary-foreground'
+                : isGuest
+                  ? 'bg-secondary text-muted-foreground'
+                  : 'bg-secondary text-secondary-foreground'
         }`;
 
     type ViewMode = 'played' | 'not-played' | 'all';
@@ -57,6 +62,8 @@
         tourname: string;
         tourwhen: string;
         year: number;
+        /** Holds nothing but guest appearances. */
+        guestOnly: boolean;
     };
 
     type SongCount = {
@@ -121,6 +128,9 @@
 
     const scrollMemory = createScrollMemory(toPath(page.url));
 
+    /** This page's own guest-appearances checkbox, apart from the other pages'. */
+    const guestAppearances = guestAppearanceSettings.songChecker;
+
     let {
         excludedSongs = [],
         clientSyncActiveInterval = 60
@@ -131,6 +141,8 @@
 
     let years = $state<number[]>([]);
     let yearsLoaded = $state(false);
+    /** Each year's show counts, for the guest-only flag and the every-year total. */
+    let yearTotals = $state<ShowYear[]>([]);
     let initialLoading = $state(true);
     let showFullSetlists = $state(
         typeof savedPrefs?.showFullSetlists === 'boolean'
@@ -316,6 +328,31 @@
         sortedSelectedYears.some((year) => !yearData.has(year))
     );
 
+    /** Whether a setlist row's show is in play under the guest checkbox. */
+    const includesRow = (row: SetlistRow): boolean =>
+        guestAppearances.shown || row.artistid === 1;
+
+    const guestOnlyYears = $derived(
+        new SvelteSet(
+            yearTotals
+                .filter((year) => !year.has_phish_show)
+                .map((year) => Number(year.showyear))
+        )
+    );
+
+    /**
+     * A guest-only year goes with the guest appearances, unless it is picked —
+     * that stays put so it can still be unpicked.
+     */
+    const visibleYears = $derived(
+        years.filter(
+            (year) =>
+                guestAppearances.shown ||
+                !guestOnlyYears.has(year) ||
+                selectedYears.has(year)
+        )
+    );
+
     /** The tour chips on offer: every tour in the selected years. */
     const availableTours = $derived(
         sortedSelectedYears.flatMap((year) => buildToursForYear(year))
@@ -354,7 +391,7 @@
             const ids = toursByYear.get(year);
 
             return (yearData.get(year) ?? []).filter(
-                (row) => row.artistid === 1 && ids?.has(row.tourid)
+                (row) => includesRow(row) && ids?.has(row.tourid)
             );
         });
     });
@@ -436,6 +473,47 @@
             b[0].showdate.localeCompare(a[0].showdate)
         );
     });
+
+    const SETLISTS_PER_PAGE = 20;
+
+    let setlistPage = $state(1);
+    let setlistsSection = $state<HTMLElement | null>(null);
+
+    const setlistPageCount = $derived(
+        Math.max(1, Math.ceil(tourShows.length / SETLISTS_PER_PAGE))
+    );
+
+    /**
+     * Clamped rather than trusted, so a refresh that drops a show (or a
+     * narrower selection) can never leave the list on a page past its end.
+     */
+    const currentSetlistPage = $derived(
+        Math.min(setlistPage, setlistPageCount)
+    );
+
+    const pagedShows = $derived(
+        tourShows.slice(
+            (currentSetlistPage - 1) * SETLISTS_PER_PAGE,
+            currentSetlistPage * SETLISTS_PER_PAGE
+        )
+    );
+
+    /**
+     * Back to the first page whenever the tours in play change. Keyed on the
+     * tours rather than the shows, so a new show landing mid-browse leaves
+     * the page where it is.
+     */
+    const scopeTourKeys = $derived(scopeTours.map(tourKey).join(','));
+
+    $effect(() => {
+        void scopeTourKeys;
+        setlistPage = 1;
+    });
+
+    function goToSetlistPage(pageNumber: number) {
+        setlistPage = pageNumber;
+        setlistsSection?.scrollIntoView({ block: 'start' });
+    }
 
     const songCounts = $derived.by<SongCount[]>(() => {
         // Every year would mean fetching every setlist ever, but the catalog
@@ -881,6 +959,22 @@
         return `${count} ${kind}${count !== 1 ? 's' : ''}${suffix}`;
     });
 
+    /** Shows across every year, guest appearances counted only while shown. */
+    const everyYearShowCount = $derived(
+        yearTotals.reduce(
+            (total, year) =>
+                total +
+                (guestAppearances.shown
+                    ? year.show_count
+                    : year.phish_show_count),
+            0
+        )
+    );
+
+    const everyYearShowCountLabel = $derived(
+        `${everyYearShowCount.toLocaleString()} show${everyYearShowCount !== 1 ? 's' : ''}`
+    );
+
     const showCountLabel = $derived(
         `${tourShows.length} show${tourShows.length !== 1 ? 's' : ''}`
     );
@@ -921,28 +1015,43 @@
             .sort((a, b) => b.showdate.localeCompare(a.showdate))
     );
 
-    function buildToursForYear(year: number): Tour[] {
+    /**
+     * `includeGuests` follows the checkbox unless told otherwise: the default
+     * selection always lands on a Phish tour, and unpicking a year has to clear
+     * all of its tour keys whichever way the checkbox is set.
+     */
+    function buildToursForYear(
+        year: number,
+        includeGuests = guestAppearances.shown
+    ): Tour[] {
         const rows = yearData.get(year) ?? [];
 
         const sorted = [...rows]
-            .filter((row) => row.artistid === 1)
+            .filter((row) => includeGuests || row.artistid === 1)
             .sort((a, b) => a.showdate.localeCompare(b.showdate));
 
         const tours: Tour[] = [];
-        const seen = new SvelteSet<number>();
+        const seen = new SvelteMap<number, Tour>();
 
         for (const row of sorted) {
-            if (seen.has(row.tourid)) {
+            const existing = seen.get(row.tourid);
+
+            if (existing) {
+                existing.guestOnly &&= row.artistid !== 1;
+
                 continue;
             }
 
-            seen.add(row.tourid);
-            tours.push({
+            const tour: Tour = {
                 tourid: row.tourid,
                 tourname: row.tourname,
                 tourwhen: row.tourwhen,
-                year
-            });
+                year,
+                guestOnly: row.artistid !== 1
+            };
+
+            seen.set(row.tourid, tour);
+            tours.push(tour);
         }
 
         return tours;
@@ -1045,7 +1154,7 @@
      */
     function selectLatestTour(year: number) {
         loadYear(year, () => {
-            const tours = buildToursForYear(year);
+            const tours = buildToursForYear(year, false);
 
             if (!tours.length) {
                 const previousYear = years[years.indexOf(year) - 1];
@@ -1079,7 +1188,7 @@
         selectedYears.delete(year);
 
         // Its tours go with it.
-        for (const tour of buildToursForYear(year)) {
+        for (const tour of buildToursForYear(year, true)) {
             selectedTourKeys.delete(tourKey(tour));
         }
     }
@@ -1185,6 +1294,10 @@
             onSuccess: (response) => {
                 const seen = new SvelteSet<number>();
                 const thisYear = new Date().getFullYear();
+
+                yearTotals = response.data.filter(
+                    (show) => Number(show.showyear) <= thisYear
+                );
 
                 years = response.data
                     .map((show) => Number(show.showyear))
@@ -1364,6 +1477,8 @@
                 <section class={FILTER_CARD_CLASSES}>
                     <h2 class={FILTER_HEADING_CLASSES}>1 · Shows</h2>
 
+                    <GuestAppearancesToggle setting={guestAppearances} count={null} />
+
                     <div class="flex flex-col gap-2">
                         {@render fieldLabel(
                             'Years',
@@ -1372,14 +1487,18 @@
                                 : 'None selected = every year',
                         )}
                         <div class="flex flex-wrap gap-1.5">
-                            {#each years as year (year)}
+                            {#each visibleYears as year (year)}
                                 <button
                                     type="button"
                                     onclick={() => toggleYear(year)}
                                     aria-pressed={selectedYears.has(year)}
                                     class={badgeClasses(
                                         selectedYears.has(year),
+                                        guestOnlyYears.has(year),
                                     )}
+                                    title={guestOnlyYears.has(year)
+                                        ? 'Guest appearances only'
+                                        : undefined}
                                 >
                                     {year}
                                 </button>
@@ -1407,7 +1526,11 @@
                                         )}
                                         class={badgeClasses(
                                             selectedTourKeys.has(tourKey(tour)),
+                                            tour.guestOnly,
                                         )}
+                                        title={tour.guestOnly
+                                            ? 'Guest appearances only'
+                                            : undefined}
                                     >
                                         {selectedYears.size > 1 &&
                                         !tour.tourname.includes(
@@ -1540,7 +1663,7 @@
                         {#if singleTour}
                             {singleTour.tourname}
                         {:else if isEverything}
-                            Every year
+                            Every year, {everyYearShowCountLabel}
                         {:else}
                             {showsHeading}
                         {/if}
@@ -1611,8 +1734,87 @@
                 </p>
             {/if}
         </div>
+
+        {#if tourShows.length}
+            <section
+                bind:this={setlistsSection}
+                class="flex max-w-2xl scroll-mt-20 flex-col gap-4 border-t pt-4"
+            >
+                <div class="flex flex-wrap items-baseline justify-between gap-2">
+                    <h2 class="font-serif text-xl font-medium">Setlists</h2>
+                    <span class="text-sm text-muted-foreground">
+                        {showCountLabel}
+                    </span>
+                </div>
+
+                {#if livePoll.inShowWindow}
+                    <div
+                        class="flex items-center gap-2 text-sm text-muted-foreground"
+                        aria-live="polite"
+                    >
+                        <span class="relative flex size-2">
+                            <span
+                                class="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-75"
+                            ></span>
+                            <span
+                                class="relative inline-flex size-2 rounded-full bg-green-500"
+                            ></span>
+                        </span>
+                        <span
+                            >Next update: {formatCountdown(
+                                livePoll.secondsRemaining,
+                            )}</span
+                        >
+                    </div>
+                {/if}
+
+                {@render setlistPager()}
+
+                <div>
+                    {#each pagedShows as rows (rows[0].showid)}
+                        <SetlistView
+                            {rows}
+                            awaitingNextSong={livePoll.inShowWindow &&
+                                rows[0].showdate === livePoll.activeShowdate}
+                            onSongClick={(row) => openSongDialog(row.slug)}
+                        />
+                    {/each}
+                </div>
+
+                {@render setlistPager()}
+            </section>
+        {/if}
     {/if}
 </div>
+
+{#snippet setlistPager()}
+    {#if setlistPageCount > 1}
+        <nav
+            aria-label="Setlist pages"
+            class="flex items-center justify-between gap-2"
+        >
+            <button
+                type="button"
+                disabled={currentSetlistPage === 1}
+                onclick={() => goToSetlistPage(currentSetlistPage - 1)}
+                class={OUTLINE_BUTTON_CLASSES}
+            >
+                Previous
+            </button>
+            <span class="text-sm text-muted-foreground">
+                Page {currentSetlistPage} of {setlistPageCount}
+            </span>
+            <button
+                type="button"
+                disabled={currentSetlistPage === setlistPageCount}
+                onclick={() => goToSetlistPage(currentSetlistPage + 1)}
+                class={OUTLINE_BUTTON_CLASSES}
+            >
+                Next
+            </button>
+        </nav>
+    {/if}
+{/snippet}
 
 <SongHistoryDialog
     bind:open={dialogOpen}

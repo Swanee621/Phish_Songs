@@ -13,7 +13,7 @@
     import GuestAppearancesToggle from '@/components/GuestAppearancesToggle.svelte';
     import SetlistView from '@/components/SetlistView.svelte';
     import SongHistoryDialog from '@/components/SongHistoryDialog.svelte';
-    import { guestAppearances } from '@/lib/guest-appearances.svelte';
+    import { guestAppearances as guestAppearanceSettings } from '@/lib/guest-appearances.svelte';
     import { createScrollMemory, toPath } from '@/lib/last-visit';
     import { createLivePoll, formatCountdown } from '@/lib/live-poll.svelte';
     import { readPrefsCookie, writePrefsCookie } from '@/lib/prefs-cookie';
@@ -48,6 +48,9 @@
     const savedPrefs = readPrefsCookie<StoredPrefs>(PREFS_COOKIE_NAME);
 
     const scrollMemory = createScrollMemory(toPath(page.url));
+
+    /** This page's own guest-appearances checkbox, apart from the other pages'. */
+    const guestAppearances = guestAppearanceSettings.setlistBrowser;
 
     let {
         clientSyncActiveInterval = 60,
@@ -371,7 +374,7 @@
     </form>
 
     <!-- Filters both lists below: guest-only years and guest shows. -->
-    <GuestAppearancesToggle count={null} />
+    <GuestAppearancesToggle setting={guestAppearances} count={null} />
 
     <!--
         Each section's header carries its current pick, so it can still be

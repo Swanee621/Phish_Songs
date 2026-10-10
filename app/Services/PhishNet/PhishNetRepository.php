@@ -113,21 +113,25 @@ class PhishNetRepository
 
     /**
      * Every year with a show, flagged with whether Phish played any of them,
-     * so a year holding nothing but guest appearances can be hidden with them.
+     * so a year holding nothing but guest appearances can be hidden with them,
+     * and how many shows it held with and without guest appearances, so the
+     * song checker can total every year either way.
      *
-     * @return array<int, array{showyear: string, has_phish_show: bool}>
+     * @return array<int, array{showyear: string, has_phish_show: bool, phish_show_count: int, show_count: int}>
      */
     public function showYears(): array
     {
-        return $this->cached('shows', 'shows.years', fn () => Show::query()
-            ->selectRaw('showyear, MAX(artistid = 1) as has_phish_show')
+        return $this->cached('shows', 'shows.year-totals', fn () => Show::query()
+            ->selectRaw('showyear, SUM(CASE WHEN artistid = 1 THEN 1 ELSE 0 END) as phish_show_count, COUNT(*) as show_count')
             ->groupBy('showyear')
             ->orderBy('showyear')
             ->toBase()
             ->get()
             ->map(fn (object $row) => [
                 'showyear' => (string) $row->showyear,
-                'has_phish_show' => (bool) $row->has_phish_show,
+                'has_phish_show' => (int) $row->phish_show_count > 0,
+                'phish_show_count' => (int) $row->phish_show_count,
+                'show_count' => (int) $row->show_count,
             ])
             ->all());
     }

@@ -414,16 +414,16 @@ test('a guest appearance is imported with its host act and served in the payload
         ->and($rows[0]['artist_name'])->toBe('Darrell Scott');
 });
 
-test('the show years endpoint flags the years phish played in', function () {
-    Show::factory()->forYear(2024)->create();
+test('the show years endpoint flags and counts the years phish played in', function () {
+    Show::factory()->count(2)->forYear(2024)->create();
     Show::factory()->forYear(2024)->create(['artistid' => -1]);
     Show::factory()->forYear(2026)->create(['artistid' => -1]);
 
     $this->getJson(route('data.show-years'))
         ->assertOk()
         ->assertExactJson(['data' => [
-            ['showyear' => '2024', 'has_phish_show' => true],
-            ['showyear' => '2026', 'has_phish_show' => false],
+            ['showyear' => '2024', 'has_phish_show' => true, 'phish_show_count' => 2, 'show_count' => 3],
+            ['showyear' => '2026', 'has_phish_show' => false, 'phish_show_count' => 0, 'show_count' => 1],
         ]]);
 });
 

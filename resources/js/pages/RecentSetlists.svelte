@@ -10,7 +10,7 @@
     import GuestAppearancesToggle from '@/components/GuestAppearancesToggle.svelte';
     import SetlistView from '@/components/SetlistView.svelte';
     import SongHistoryDialog from '@/components/SongHistoryDialog.svelte';
-    import { guestAppearances } from '@/lib/guest-appearances.svelte';
+    import { guestAppearances as guestAppearanceSettings } from '@/lib/guest-appearances.svelte';
     import { createScrollMemory, toPath } from '@/lib/last-visit';
     import { createLivePoll, formatCountdown } from '@/lib/live-poll.svelte';
     import type { SetlistRow } from '@/types/phishnet';
@@ -25,6 +25,9 @@
     let loaded = $state(false);
 
     const scrollMemory = createScrollMemory(toPath(page.url));
+
+    /** This page's own guest-appearances checkbox, apart from the other pages'. */
+    const guestAppearances = guestAppearanceSettings.recentSetlists;
 
     let songDialogOpen = $state(false);
     let songDialogSlug = $state<string | null>(null);
@@ -154,7 +157,7 @@
             {/if}
         </div>
 
-        <GuestAppearancesToggle count={guestCount} />
+        <GuestAppearancesToggle setting={guestAppearances} count={guestCount} />
     {/if}
 
     {#if !loaded}

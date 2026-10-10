@@ -1,34 +1,45 @@
 import { readPrefsCookie, writePrefsCookie } from '@/lib/prefs-cookie';
 
-const PREFS_COOKIE_NAME = 'guest-appearances';
-
 type StoredPrefs = {
     shown: boolean;
 };
 
-const stored = readPrefsCookie<StoredPrefs>(PREFS_COOKIE_NAME);
+export type GuestAppearancesSetting = {
+    shown: boolean;
+};
 
 /**
- * Hidden by default: the listings are about Phish's own shows, and a guest
- * appearance is opted into rather than filtered out. The checkbox names how
- * many are being held back, so what is missing is never a silent gap.
- */
-let shown = $state(typeof stored?.shown === 'boolean' ? stored.shown : false);
-
-/**
- * Whether shows Phish did not headline (`artistid !== 1`) belong on screen.
+ * Whether shows Phish did not headline (`artistid !== 1`) belong on screen,
+ * persisted in a cookie of its own.
  *
- * One preference across every page that can list them, persisted in a cookie —
- * a visitor who turned them off on the browser means it on the recent setlists
- * too, and means it on their next visit.
+ * Hidden by default: the listings are about Phish's own shows, and a guest
+ * appearance is opted into rather than filtered out.
+ */
+function createGuestAppearances(cookieName: string): GuestAppearancesSetting {
+    const stored = readPrefsCookie<StoredPrefs>(cookieName);
+
+    let shown = $state(
+        typeof stored?.shown === 'boolean' ? stored.shown : false,
+    );
+
+    return {
+        get shown(): boolean {
+            return shown;
+        },
+        set shown(value: boolean) {
+            shown = value;
+
+            writePrefsCookie<StoredPrefs>(cookieName, { shown: value });
+        },
+    };
+}
+
+/**
+ * One setting per page, so guest appearances can be on in one listing and
+ * off in another.
  */
 export const guestAppearances = {
-    get shown(): boolean {
-        return shown;
-    },
-    set shown(value: boolean) {
-        shown = value;
-
-        writePrefsCookie<StoredPrefs>(PREFS_COOKIE_NAME, { shown: value });
-    },
+    songChecker: createGuestAppearances('song-checker-guest-appearances'),
+    setlistBrowser: createGuestAppearances('setlist-browser-guest-appearances'),
+    recentSetlists: createGuestAppearances('recent-setlists-guest-appearances'),
 };

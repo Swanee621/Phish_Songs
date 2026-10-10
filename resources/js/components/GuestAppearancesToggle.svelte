@@ -1,14 +1,17 @@
 <script lang="ts">
-    import { guestAppearances } from '@/lib/guest-appearances.svelte';
+    import type { GuestAppearancesSetting } from '@/lib/guest-appearances.svelte';
 
     /**
      * How many guest appearances the unfiltered list holds, so the checkbox can
      * say what it is hiding. Nothing is rendered when the list has none — a
      * control for something not on screen is only noise. `null` shows it
      * regardless, without a count, for a page where it filters more than one
-     * list at once.
+     * list at once. `setting` is the page's own guest-appearances preference.
      */
-    let { count = 0 }: { count?: number | null } = $props();
+    let {
+        setting,
+        count = 0,
+    }: { setting: GuestAppearancesSetting; count?: number | null } = $props();
 </script>
 
 {#if count === null || count > 0}
@@ -17,9 +20,8 @@
     >
         <input
             type="checkbox"
-            checked={guestAppearances.shown}
-            onchange={(event) =>
-                (guestAppearances.shown = event.currentTarget.checked)}
+            checked={setting.shown}
+            onchange={(event) => (setting.shown = event.currentTarget.checked)}
             class="size-4 cursor-pointer rounded border-input accent-primary"
         />
         Guest appearances{count === null ? '' : ` (${count})`}

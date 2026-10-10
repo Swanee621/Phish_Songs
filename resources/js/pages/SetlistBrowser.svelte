@@ -1,7 +1,9 @@
 <script lang="ts">
     import { page, useHttp } from '@inertiajs/svelte';
+    import ChevronDown from 'lucide-svelte/icons/chevron-down';
     import { onMount } from 'svelte';
-    import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+    import { SvelteMap } from 'svelte/reactivity';
+    import { slide } from 'svelte/transition';
     import {
         setlistForDate,
         setlistsForYear,
@@ -37,6 +39,8 @@
     type StoredPrefs = {
         year: string | null;
         showdate: string;
+        yearsOpen: boolean;
+        showsOpen: boolean;
     };
 
     const PREFS_COOKIE_NAME = 'setlist-browser-prefs';
@@ -51,7 +55,7 @@
         clientSyncActiveInterval?: number;
     } = $props();
 
-    let years = $state<string[]>([]);
+    let years = $state<ShowYear[]>([]);
     let yearsLoaded = $state(false);
     let selectedYear = $state<string | null>(null);
     let yearShows = $state<SetlistRow[][]>([]);
@@ -63,6 +67,9 @@
     let rows = $state<SetlistRow[] | null>(null);
     let loading = $state(false);
     let notFound = $state(false);
+
+    let yearsOpen = $state(savedPrefs?.yearsOpen === true);
+    let showsOpen = $state(savedPrefs?.showsOpen === true);
 
     let songDialogOpen = $state(false);
     let songDialogSlug = $state<string | null>(null);
@@ -164,8 +171,18 @@
             : yearShows.filter((show) => show[0].artistid === 1),
     );
 
-    const guestCount = $derived(
-        yearShows.filter((show) => show[0].artistid !== 1).length,
+    /**
+     * A year of nothing but guest appearances goes with them, unless it is the
+     * one already selected — that stays put rather than vanishing from under
+     * the show list it is heading.
+     */
+    const visibleYears = $derived(
+        years.filter(
+            (year) =>
+                guestAppearances.shown ||
+                year.has_phish_show ||
+                year.showyear === selectedYear,
+        ),
     );
 
     // True only while the setlist on screen is the show currently being played.
@@ -179,19 +196,7 @@
     onMount(() => {
         yearsHttp.get(showYears.url(), {
             onSuccess: (response) => {
-                const seen = new SvelteSet<string>();
-                years = response.data
-                    .map((show) => show.showyear)
-                    .filter((year) => {
-                        if (seen.has(year)) {
-                            return false;
-                        }
-
-                        seen.add(year);
-
-                        return true;
-                    })
-                    .sort((a, b) => Number(a) - Number(b));
+                years = response.data;
                 yearsLoaded = true;
 
                 restorePrefs();
@@ -218,13 +223,23 @@
 
     /**
      * Re-select the year and re-fetch the date the visitor was last looking at.
-     * `loadYear` clears `rows`, so it has to run before `loadDate`.
+     * `loadYear` clears `rows`, so it has to run before `loadDate`. A first
+     * visit, with nothing saved, opens on the most recent show instead.
      */
     function restorePrefs() {
         const savedYear = savedPrefs?.year;
 
-        if (typeof savedYear === 'string' && years.includes(savedYear)) {
+        if (
+            typeof savedYear === 'string' &&
+            years.some((year) => year.showyear === savedYear)
+        ) {
             loadYear(savedYear);
+        } else if (!savedYear && !loadedShowdate) {
+            const latestYear = visibleYears.at(-1);
+
+            if (latestYear) {
+                loadYear(latestYear.showyear, true);
+            }
         }
 
         if (loadedShowdate) {
@@ -242,6 +257,8 @@
         writePrefsCookie<StoredPrefs>(PREFS_COOKIE_NAME, {
             year: selectedYear,
             showdate: loadedShowdate,
+            yearsOpen,
+            showsOpen,
         });
     });
 
@@ -266,7 +283,11 @@
         return [...grouped.values()];
     }
 
-    function loadYear(year: string) {
+    /**
+     * `openLatestShow` follows the year's list up with its last show (they come
+     * back oldest first), for the first visit's default.
+     */
+    function loadYear(year: string, openLatestShow = false) {
         selectedYear = year;
         yearLoading = true;
         yearShows = [];
@@ -276,6 +297,12 @@
             onSuccess: (response) => {
                 yearShows = groupShows(response.data);
                 yearLoading = false;
+
+                const latest = visibleYearShows.at(-1);
+
+                if (openLatestShow && latest) {
+                    loadDate(latest[0].showdate);
+                }
             },
         });
     }
@@ -314,7 +341,7 @@
 
 <AppHead title="Setlist Browser" />
 
-<div class="flex h-full flex-1 flex-col gap-4 p-4">
+<div class="flex h-full flex-1 flex-col gap-2 p-4">
     <div>
         <h1 class="text-2xl font-semibold">Setlist Browser</h1>
         <p class="text-muted-foreground">
@@ -343,65 +370,123 @@
         </button>
     </form>
 
-    <div>
-        <h2 class="mb-2 text-sm font-semibold text-muted-foreground">
-            Browse by year
-        </h2>
-        <div class="flex flex-wrap gap-1.5">
-            {#if !yearsLoaded}
-                <span class="text-sm text-muted-foreground">Loading years…</span
-                >
-            {:else}
-                {#each years as year (year)}
-                    <button
-                        type="button"
-                        onclick={() => loadYear(year)}
-                        class={badgeClasses(selectedYear === year)}
-                    >
-                        {year}
-                    </button>
-                {/each}
+    <!-- Filters both lists below: guest-only years and guest shows. -->
+    <GuestAppearancesToggle count={null} />
+
+    <!--
+        Each section's header carries its current pick, so it can still be
+        read with the section folded away.
+      -->
+    {#snippet sectionHeader(
+        label: string,
+        selected: string | null,
+        open: boolean,
+        controls: string,
+        toggle: () => void,
+    )}
+        <button
+            type="button"
+            onclick={toggle}
+            aria-expanded={open}
+            aria-controls={controls}
+            class="flex w-full cursor-pointer items-center gap-2 py-1 text-left"
+        >
+            <ChevronDown
+                class="size-4 shrink-0 text-muted-foreground transition-transform duration-200 {open
+                    ? ''
+                    : '-rotate-90'}"
+            />
+            <h2 class="text-sm font-semibold text-muted-foreground">
+                {label}
+            </h2>
+            {#if selected}
+                <span class={badgeClasses(true)}>{selected}</span>
             {/if}
-        </div>
-    </div>
+        </button>
+    {/snippet}
 
-    {#if selectedYear}
-        <div>
-            <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <h2 class="text-sm font-semibold text-muted-foreground">
-                    Shows in {selectedYear}
-                </h2>
-
-                {#if !yearLoading}
-                    <GuestAppearancesToggle count={guestCount} />
-                {/if}
-            </div>
-            <div class="flex flex-wrap gap-1.5">
-                {#if yearLoading}
+    <div>
+        {@render sectionHeader(
+            'Browse by year',
+            selectedYear,
+            yearsOpen,
+            'setlist-browser-years',
+            () => (yearsOpen = !yearsOpen),
+        )}
+        {#if yearsOpen}
+            <div
+                id="setlist-browser-years"
+                class="flex flex-wrap gap-1.5 pt-2"
+                transition:slide={{ duration: 200 }}
+            >
+                {#if !yearsLoaded}
                     <span class="text-sm text-muted-foreground"
-                        >Loading shows…</span
-                    >
-                {:else if !visibleYearShows.length}
-                    <span class="text-sm text-muted-foreground"
-                        >No shows found.</span
+                        >Loading years…</span
                     >
                 {:else}
-                    {#each visibleYearShows as show (show[0].showid)}
+                    {#each visibleYears as year (year.showyear)}
                         <button
                             type="button"
-                            onclick={() => loadDate(show[0].showdate)}
+                            onclick={() => loadYear(year.showyear)}
                             class={badgeClasses(
-                                showdate === show[0].showdate,
-                                show[0].artistid !== 1,
+                                selectedYear === year.showyear,
+                                !year.has_phish_show,
                             )}
-                            title={show[0].artistid !== 1
-                                ? `Guest appearance${show[0].artist_name ? ` — ${show[0].artist_name}` : ''}`
-                                : undefined}
-                            >{show[0].showdate}
+                            title={year.has_phish_show
+                                ? undefined
+                                : 'Guest appearances only'}
+                        >
+                            {year.showyear}
                         </button>
                     {/each}
                 {/if}
             </div>
+        {/if}
+    </div>
+
+    {#if selectedYear}
+        <div>
+            {@render sectionHeader(
+                `Shows in ${selectedYear}`,
+                loadedShowdate.startsWith(selectedYear) ? loadedShowdate : null,
+                showsOpen,
+                'setlist-browser-shows',
+                () => (showsOpen = !showsOpen),
+            )}
+            {#if showsOpen}
+                <div
+                    id="setlist-browser-shows"
+                    class="flex flex-col gap-2 pt-2"
+                    transition:slide={{ duration: 200 }}
+                >
+                    <div class="flex flex-wrap gap-1.5">
+                        {#if yearLoading}
+                            <span class="text-sm text-muted-foreground"
+                                >Loading shows…</span
+                            >
+                        {:else if !visibleYearShows.length}
+                            <span class="text-sm text-muted-foreground"
+                                >No shows found.</span
+                            >
+                        {:else}
+                            {#each visibleYearShows as show (show[0].showid)}
+                                <button
+                                    type="button"
+                                    onclick={() => loadDate(show[0].showdate)}
+                                    class={badgeClasses(
+                                        showdate === show[0].showdate,
+                                        show[0].artistid !== 1,
+                                    )}
+                                    title={show[0].artistid !== 1
+                                        ? `Guest appearance${show[0].artist_name ? ` — ${show[0].artist_name}` : ''}`
+                                        : undefined}
+                                    >{show[0].showdate}
+                                </button>
+                            {/each}
+                        {/if}
+                    </div>
+                </div>
+            {/if}
         </div>
     {/if}
 

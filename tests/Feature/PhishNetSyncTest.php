@@ -414,6 +414,19 @@ test('a guest appearance is imported with its host act and served in the payload
         ->and($rows[0]['artist_name'])->toBe('Darrell Scott');
 });
 
+test('the show years endpoint flags the years phish played in', function () {
+    Show::factory()->forYear(2024)->create();
+    Show::factory()->forYear(2024)->create(['artistid' => -1]);
+    Show::factory()->forYear(2026)->create(['artistid' => -1]);
+
+    $this->getJson(route('data.show-years'))
+        ->assertOk()
+        ->assertExactJson(['data' => [
+            ['showyear' => '2024', 'has_phish_show' => true],
+            ['showyear' => '2026', 'has_phish_show' => false],
+        ]]);
+});
+
 test('a guest appearances songs are what the header reports on a night phish does not play', function () {
     fakeScheduledShows('2026-09-03', [scheduledShowRow([
         'showdate' => '2026-09-03',

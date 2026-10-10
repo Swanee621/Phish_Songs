@@ -112,16 +112,23 @@ class PhishNetRepository
     }
 
     /**
-     * @return array<int, array<string, mixed>>
+     * Every year with a show, flagged with whether Phish played any of them,
+     * so a year holding nothing but guest appearances can be hidden with them.
+     *
+     * @return array<int, array{showyear: string, has_phish_show: bool}>
      */
     public function showYears(): array
     {
-        return $this->cached('shows', 'shows.showyear', fn () => Show::query()
-            ->select('showyear')
-            ->distinct()
+        return $this->cached('shows', 'shows.years', fn () => Show::query()
+            ->selectRaw('showyear, MAX(artistid = 1) as has_phish_show')
+            ->groupBy('showyear')
             ->orderBy('showyear')
-            ->pluck('showyear')
-            ->map(fn (int $year) => ['showyear' => (string) $year])
+            ->toBase()
+            ->get()
+            ->map(fn (object $row) => [
+                'showyear' => (string) $row->showyear,
+                'has_phish_show' => (bool) $row->has_phish_show,
+            ])
             ->all());
     }
 

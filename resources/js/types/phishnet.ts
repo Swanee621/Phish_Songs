@@ -54,6 +54,7 @@ export type VenueShow = {
 
 export type ShowYear = {
     showyear: string;
+    has_phish_show: boolean;
 };
 
 export type Song = {

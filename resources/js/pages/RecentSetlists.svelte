@@ -128,7 +128,7 @@
     <div>
         <h1 class="text-2xl font-semibold">Recent Setlists</h1>
         <p class="text-muted-foreground">
-            Pulling this year's setlists via the Phish.net API
+            Phish.net API
         </p>
     </div>
 

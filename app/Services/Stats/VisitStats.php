@@ -21,6 +21,16 @@ class VisitStats
     protected const TRAVELLER_LIMIT = 200;
 
     /**
+     * Generous door-to-door speeds for judging whether a hop between two
+     * places could really have happened in the time between visits.
+     */
+    protected const DRIVING_KMH = 130;
+
+    protected const FLYING_KMH = 900;
+
+    protected const FLIGHT_OVERHEAD_HOURS = 1;
+
+    /**
      * @return array{from: string|null, to: string|null, visits: int, visitors: int, unresolved: int}
      */
     public function bounds(): array
@@ -97,25 +107,100 @@ class VisitStats
                 'visitor_id' => $visitorId,
                 'first_seen' => $visits->first()->visited_at->toIso8601String(),
                 'last_seen' => $visits->last()->visited_at->toIso8601String(),
-                'stops' => $this->stops($visits),
+                'stops' => $this->stops($visits, $this->lookalikes($visits)),
             ])
+            ->filter(fn (array $traveller) => count($traveller['stops']) > 1)
             ->sortByDesc('last_seen')
             ->values()
             ->all();
     }
 
     /**
+     * Mobile networks often geolocate one phone to two nearby cities in turn,
+     * which would draw trips nobody took. When a visitor hops between two
+     * places faster than they could drive or fly there, the place they were
+     * seen in less is treated as the other one. Repeats until every hop left
+     * is possible.
+     *
+     * @param  Collection<int, Visit>  $visits  ordered by visited_at
+     * @return array<int, int> location id => the location id it stands in for
+     */
+    protected function lookalikes(Collection $visits): array
+    {
+        /** @var array<int, int> $aliases */
+        $aliases = [];
+        $placeOf = function (Visit $visit) use (&$aliases): int {
+            return $aliases[$visit->location_id] ?? $visit->location_id;
+        };
+        $locations = $visits->pluck('location')->keyBy('id');
+
+        do {
+            $merged = false;
+            $previous = null;
+
+            foreach ($visits as $visit) {
+                if ($previous !== null && $placeOf($previous) !== $placeOf($visit)) {
+                    $from = $locations[$placeOf($previous)];
+                    $to = $locations[$placeOf($visit)];
+                    $hours = $previous->visited_at->diffInSeconds($visit->visited_at) / 3600;
+
+                    if (! $this->isReachable($from, $to, $hours)) {
+                        $counts = $visits->countBy($placeOf);
+                        [$kept, $dropped] = $counts[$to->id] > $counts[$from->id] ? [$to->id, $from->id] : [$from->id, $to->id];
+
+                        $aliases = array_map(fn (int $id) => $id === $dropped ? $kept : $id, $aliases);
+                        $aliases[$dropped] = $kept;
+                        $merged = true;
+
+                        break;
+                    }
+                }
+
+                $previous = $visit;
+            }
+        } while ($merged);
+
+        return $aliases;
+    }
+
+    protected function isReachable(Location $from, Location $to, float $hours): bool
+    {
+        $kilometres = $this->distanceInKilometres($from, $to);
+
+        return $hours >= min(
+            $kilometres / self::DRIVING_KMH,
+            self::FLIGHT_OVERHEAD_HOURS + $kilometres / self::FLYING_KMH,
+        );
+    }
+
+    /**
+     * Great-circle (haversine) distance.
+     */
+    protected function distanceInKilometres(Location $from, Location $to): float
+    {
+        $latitudeDelta = deg2rad($to->latitude - $from->latitude);
+        $longitudeDelta = deg2rad($to->longitude - $from->longitude);
+
+        $a = sin($latitudeDelta / 2) ** 2
+            + cos(deg2rad($from->latitude)) * cos(deg2rad($to->latitude)) * sin($longitudeDelta / 2) ** 2;
+
+        return 6371 * 2 * atan2(sqrt($a), sqrt(1 - $a));
+    }
+
+    /**
      * @param  Collection<int, Visit>  $visits
+     * @param  array<int, int>  $aliases  location id => the location id to show instead
      * @return array<int, array{lat: float, lng: float, city: string|null, region: string|null, country_code: string|null, first_at: string, last_at: string, visits: int}>
      */
-    protected function stops(Collection $visits): array
+    protected function stops(Collection $visits, array $aliases = []): array
     {
         $stops = [];
         $current = null;
+        $locations = $visits->pluck('location')->keyBy('id');
 
         foreach ($visits as $visit) {
             /** @var Location $location */
-            $location = $visit->location;
+            $location = $locations[$aliases[$visit->location_id] ?? $visit->location_id];
 
             if ($current !== null && $current['location_id'] === $location->id) {
                 $current['last_at'] = $visit->visited_at->toIso8601String();

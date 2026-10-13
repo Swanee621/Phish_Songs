@@ -93,6 +93,36 @@ describe('aggregates', function () {
             ->assertJsonCount(0, 'data');
     });
 
+    test('hops faster than anyone could travel are folded into the place seen more', function () {
+        $greendale = Location::factory()->create(['city' => 'Greendale', 'latitude' => 42.9352, 'longitude' => -88.0034]);
+        $naperville = Location::factory()->create(['city' => 'Naperville', 'latitude' => 41.7057, 'longitude' => -88.1535]);
+        $phone = fake()->uuid();
+
+        // A phone whose carrier address flips between two cities ~137 km apart.
+        foreach ([
+            ['05:00', $greendale], ['06:20', $naperville], ['06:21', $naperville],
+            ['06:55', $greendale], ['15:00', $naperville], ['22:00', $naperville],
+        ] as [$time, $location]) {
+            Visit::factory()->create(['visitor_id' => $phone, 'location_id' => $location->id, 'visited_at' => CarbonImmutable::parse("2026-10-02 {$time}")]);
+        }
+
+        // Only the real Burlington to Denver traveller is left.
+        $this->getJson('/data/stats/travellers')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.visitor_id', $this->traveller);
+
+        // A same-day Burlington to Denver flight is still a trip.
+        $flyer = fake()->uuid();
+        Visit::factory()->create(['visitor_id' => $flyer, 'location_id' => $this->burlington->id, 'visited_at' => CarbonImmutable::parse('2026-10-03 08:00')]);
+        Visit::factory()->create(['visitor_id' => $flyer, 'location_id' => $this->denver->id, 'visited_at' => CarbonImmutable::parse('2026-10-03 13:00')]);
+
+        $this->getJson('/data/stats/travellers')
+            ->assertOk()
+            ->assertJsonCount(2, 'data')
+            ->assertJsonPath('data.0.visitor_id', $flyer);
+    });
+
     test('a malformed range is rejected', function () {
         $this->getJson('/data/stats/heatmap?from=yesterday')
             ->assertUnprocessable()

@@ -16,6 +16,9 @@ class VisitStats
 {
     public const VISITS_PER_PAGE = 50;
 
+    /** How many visit times each map pin lists when clicked. */
+    public const RECENT_PER_PLACE = 25;
+
     /**
      * @return array{from: string|null, to: string|null, visits: int, unresolved: int}
      */
@@ -35,26 +38,40 @@ class VisitStats
     }
 
     /**
-     * Visit totals per place for the heat layer.
+     * Visit totals per place for the map pins, each with the times of its
+     * most recent visits in the range.
      *
-     * @return array<int, array{lat: float, lng: float, count: int, city: string|null, region: string|null, country_code: string|null}>
+     * @return array<int, array{id: int, lat: float, lng: float, count: int, city: string|null, region: string|null, country_code: string|null, recent: array<int, string>}>
      */
-    public function heatmap(?CarbonInterface $from, ?CarbonInterface $to): array
+    public function places(?CarbonInterface $from, ?CarbonInterface $to): array
     {
+        $recentByPlace = $this->inRange(Visit::query(), $from, $to)
+            ->whereNotNull('location_id')
+            ->orderByDesc('visited_at')
+            ->orderByDesc('id')
+            ->get(['location_id', 'visited_at'])
+            ->groupBy('location_id')
+            ->map(fn ($visits) => $visits->take(self::RECENT_PER_PLACE)
+                ->map(fn (Visit $visit) => $visit->visited_at->toIso8601String())
+                ->values()
+                ->all());
+
         return $this->inRange(Visit::query(), $from, $to)
             ->join('locations', 'locations.id', '=', 'visits.location_id')
             ->groupBy('locations.id', 'locations.latitude', 'locations.longitude', 'locations.city', 'locations.region', 'locations.country_code')
-            ->selectRaw('locations.latitude, locations.longitude, locations.city, locations.region, locations.country_code, COUNT(*) AS count')
+            ->selectRaw('locations.id, locations.latitude, locations.longitude, locations.city, locations.region, locations.country_code, COUNT(*) AS count')
             ->orderByDesc('count')
             ->toBase()
             ->get()
             ->map(fn (object $row) => [
+                'id' => (int) $row->id,
                 'lat' => (float) $row->latitude,
                 'lng' => (float) $row->longitude,
                 'count' => (int) $row->count,
                 'city' => $row->city,
                 'region' => $row->region,
                 'country_code' => $row->country_code,
+                'recent' => $recentByPlace->get($row->id, []),
             ])
             ->all();
     }

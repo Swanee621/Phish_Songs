@@ -10,7 +10,7 @@ use Inertia\Testing\AssertableInertia;
 test('the stats pages are only for someone logged in', function () {
     $this->get('/stats')->assertRedirect('/login');
     $this->getJson('/data/stats/bounds')->assertUnauthorized();
-    $this->getJson('/data/stats/heatmap')->assertUnauthorized();
+    $this->getJson('/data/stats/places')->assertUnauthorized();
     $this->getJson('/data/stats/visits')->assertUnauthorized();
 
     $this->actingAs(User::factory()->create())
@@ -44,27 +44,53 @@ describe('aggregates', function () {
             ->assertJsonMissingPath('data.visitors');
     });
 
-    test('the heatmap totals visits per city within the range', function () {
-        $this->getJson('/data/stats/heatmap')
+    test('the places total visits per city within the range', function () {
+        $this->getJson('/data/stats/places')
             ->assertOk()
             ->assertJsonCount(2, 'data')
             ->assertJsonPath('data.0.city', 'Burlington')
             ->assertJsonPath('data.0.count', 3)
             ->assertJsonPath('data.0.lat', 44.4759)
+            ->assertJsonPath('data.0.recent', [
+                '2026-10-02T12:00:00+00:00',
+                '2026-10-01T18:00:00+00:00',
+                '2026-10-01T09:00:00+00:00',
+            ])
             ->assertJsonPath('data.1.city', 'Denver')
-            ->assertJsonPath('data.1.count', 1);
+            ->assertJsonPath('data.1.count', 1)
+            ->assertJsonPath('data.1.recent', ['2026-10-03T12:00:00+00:00']);
 
-        $this->getJson('/data/stats/heatmap?from=2026-10-02&to=2026-10-03')
+        $this->getJson('/data/stats/places?from=2026-10-02&to=2026-10-03')
             ->assertOk()
             ->assertJsonCount(2, 'data')
             ->assertJsonPath('data.0.count', 1)
             ->assertJsonPath('data.1.count', 1);
 
-        $this->getJson('/data/stats/heatmap?to=2026-10-01')
+        $this->getJson('/data/stats/places?to=2026-10-01')
+            ->assertJsonPath('data.0.recent', [
+                '2026-10-01T18:00:00+00:00',
+                '2026-10-01T09:00:00+00:00',
+            ]);
+
+        $this->getJson('/data/stats/places?to=2026-10-01')
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.city', 'Burlington')
             ->assertJsonPath('data.0.count', 2);
+    });
+
+    test('each place lists only its latest visit times', function () {
+        Visit::factory()->count(VisitStats::RECENT_PER_PLACE)->create([
+            'location_id' => $this->denver->id,
+            'visited_at' => CarbonImmutable::parse('2026-10-05 12:00'),
+        ]);
+
+        $this->getJson('/data/stats/places')
+            ->assertOk()
+            ->assertJsonPath('data.0.city', 'Denver')
+            ->assertJsonPath('data.0.count', VisitStats::RECENT_PER_PLACE + 1)
+            ->assertJsonCount(VisitStats::RECENT_PER_PLACE, 'data.0.recent')
+            ->assertJsonPath('data.0.recent.0', '2026-10-05T12:00:00+00:00');
     });
 
     test('the visit list has every visit in the range, newest first, unplaced ones included', function () {
@@ -118,11 +144,11 @@ describe('aggregates', function () {
     });
 
     test('a malformed range is rejected', function () {
-        $this->getJson('/data/stats/heatmap?from=yesterday')
+        $this->getJson('/data/stats/places?from=yesterday')
             ->assertUnprocessable()
             ->assertJsonValidationErrors('from');
 
-        $this->getJson('/data/stats/heatmap?from=2026-10-03&to=2026-10-01')
+        $this->getJson('/data/stats/places?from=2026-10-03&to=2026-10-01')
             ->assertUnprocessable()
             ->assertJsonValidationErrors('to');
     });

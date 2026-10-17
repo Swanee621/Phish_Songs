@@ -4,14 +4,14 @@
     import { onMount } from 'svelte';
     import {
         bounds as boundsRoute,
-        heatmap as heatmapRoute,
+        places as placesRoute,
         visits as visitsRoute,
     } from '@/actions/App/Http/Controllers/StatsController';
     import AppHead from '@/components/AppHead.svelte';
     import RangeSlider, { clampRange } from '@/components/RangeSlider.svelte';
     import { dayFromIsoDate, isoDateFromDay } from '@/lib/day';
     import type {
-        HeatPoint,
+        PlacePoint,
         StatsBounds,
         VisitRow,
         VisitsPage,
@@ -22,13 +22,13 @@
     const boundsHttp = useHttp<Record<string, never>, { data: StatsBounds }>(
         {},
     );
-    const heatmapHttp = useHttp<Record<string, never>, { data: HeatPoint[] }>(
+    const placesHttp = useHttp<Record<string, never>, { data: PlacePoint[] }>(
         {},
     );
     const visitsHttp = useHttp<Record<string, never>, VisitsPage>({});
 
     let bounds = $state<StatsBounds | null>(null);
-    let points = $state<HeatPoint[]>([]);
+    let points = $state<PlacePoint[]>([]);
     let visits = $state<VisitRow[]>([]);
     let visitsMeta = $state<VisitsPage['meta'] | null>(null);
     let selectedVisitId = $state<number | null>(null);
@@ -53,7 +53,7 @@
     let mapElement = $state<HTMLDivElement | null>(null);
     let L: typeof Leaflet | null = null;
     let map: Leaflet.Map | null = null;
-    let heat: Leaflet.HeatLayer | null = null;
+    let pins: Leaflet.LayerGroup | null = null;
     let highlight: Leaflet.LayerGroup | null = null;
 
     /** The query the slider currently describes, or nothing when unbounded. */
@@ -66,7 +66,7 @@
         const query = rangeQuery();
         const unbounded = fromDay === null && toDay === null;
 
-        heatmapHttp.get(heatmapRoute.url({ query }), {
+        placesHttp.get(placesRoute.url({ query }), {
             onSuccess: (response) => {
                 points = response.data;
 
@@ -77,7 +77,7 @@
                     );
                 }
 
-                heat?.setLatLngs(heatPoints(points));
+                drawPins();
             },
         });
 
@@ -101,29 +101,86 @@
     }
 
     /**
-     * The busiest city over all time. Intensities are scaled against this
+     * The busiest city over all time. Pin sizes are scaled against this
      * rather than the busiest city in the current range, so narrowing the
-     * range cools the map instead of re-stretching whatever is left to red.
+     * range shrinks the pins instead of re-stretching whatever is left.
      */
     let peakCount = $state(1);
 
-    /** Visit counts scaled to 0–1, which is the range the heat layer expects. */
-    const heatPoints = (rows: HeatPoint[]): Array<[number, number, number]> =>
-        rows.map((point) => [
-            point.lat,
-            point.lng,
-            Math.max(0.08, point.count / peakCount),
-        ]);
+    /** Pin radius by area, so a city with 4× the visits looks 4× as big. */
+    const pinRadius = (count: number): number =>
+        5 + 13 * Math.sqrt(count / peakCount);
+
+    const visitsLabel = (count: number): string =>
+        `${count} ${count === 1 ? 'visit' : 'visits'}`;
+
+    /**
+     * Built from DOM nodes rather than an HTML string so place names from
+     * the geo lookup can never be read as markup.
+     */
+    function pinPopup(point: PlacePoint): HTMLElement {
+        const root = document.createElement('div');
+        const title = root.appendChild(document.createElement('strong'));
+        title.textContent = placeLabel(point);
+
+        const summary = root.appendChild(document.createElement('div'));
+        summary.textContent =
+            point.count > point.recent.length
+                ? `${visitsLabel(point.count)} · latest ${point.recent.length}:`
+                : `${visitsLabel(point.count)}:`;
+
+        const list = root.appendChild(document.createElement('ul'));
+        list.style.cssText =
+            'margin:4px 0 0;padding:0;list-style:none;max-height:12rem;overflow-y:auto;font-variant-numeric:tabular-nums';
+
+        for (const iso of point.recent) {
+            list.appendChild(document.createElement('li')).textContent =
+                formatDate(iso);
+        }
+
+        return root;
+    }
+
+    /** Redraws one pin per city, biggest first so small ones stay on top. */
+    function drawPins() {
+        if (!L || !pins) {
+            return;
+        }
+
+        pins.clearLayers();
+
+        for (const point of points) {
+            const latest = point.recent[0];
+
+            L.circleMarker([point.lat, point.lng], {
+                radius: pinRadius(point.count),
+                color: '#b91c1c',
+                fillColor: '#ef4444',
+                fillOpacity: 0.65,
+                weight: 1.5,
+            })
+                .bindTooltip(
+                    [
+                        placeLabel(point),
+                        visitsLabel(point.count),
+                        latest ? `Latest: ${formatDate(latest)}` : '',
+                    ]
+                        .filter(Boolean)
+                        .join(' · '),
+                )
+                .bindPopup(() => pinPopup(point))
+                .addTo(pins);
+        }
+    }
 
     /*
      * Leaflet reaches for `window` the moment it is imported, so it only
-     * loads once the page is in a browser. The heat plugin then bolts itself
-     * onto the global `L` Leaflet installs — not onto the module namespace
-     * Vite hands back — so that global is the object to use from here on.
+     * loads once the page is in a browser. It installs itself as a global
+     * `L`, which is used rather than the CommonJS interop namespace Vite
+     * hands back.
      */
     async function mountMap(element: HTMLDivElement) {
         await import('leaflet');
-        await import('leaflet.heat');
 
         L = (globalThis as unknown as { L: typeof Leaflet }).L;
 
@@ -135,24 +192,9 @@
                 '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
         }).addTo(map);
 
-        /*
-         * The plugin dims every point by 2^(maxZoom - zoom), so `maxZoom`
-         * is pinned to the opening view: cities read at full strength from
-         * a continent out, and the weights above already carry the contrast.
-         */
-        heat = L.heatLayer(heatPoints(points), {
-            radius: 16,
-            blur: 10,
-            maxZoom: 2,
-            minOpacity: 0.15,
-            gradient: {
-                0.2: '#3b82f6',
-                0.45: '#22c55e',
-                0.7: '#eab308',
-                1: '#ef4444',
-            },
-        }).addTo(map);
+        pins = L.layerGroup().addTo(map);
         highlight = L.layerGroup().addTo(map);
+        drawPins();
     }
 
     onMount(() => {
@@ -172,7 +214,7 @@
         return () => {
             map?.remove();
             map = null;
-            heat = null;
+            pins = null;
             highlight = null;
         };
     });
@@ -227,7 +269,7 @@
         map.panTo([row.lat, row.lng]);
     });
 
-    const placeLabel = (row: VisitRow | HeatPoint): string =>
+    const placeLabel = (row: VisitRow | PlacePoint): string =>
         [row.city, row.region, row.country_code].filter(Boolean).join(', ') ||
         'Unknown';
 
@@ -296,7 +338,7 @@
     <div
         bind:this={mapElement}
         class="z-0 h-[55vh] min-h-80 w-full overflow-hidden rounded-xl border bg-muted"
-        aria-label="Visitor heatmap"
+        aria-label="Visitor map"
     ></div>
 
     <div class="space-y-2">

@@ -21,9 +21,9 @@ class StatsController extends Controller
         return response()->json(['data' => $stats->bounds()]);
     }
 
-    public function heatmap(StatsRangeRequest $request, VisitStats $stats): JsonResponse
+    public function places(StatsRangeRequest $request, VisitStats $stats): JsonResponse
     {
-        return response()->json(['data' => $stats->heatmap($request->from(), $request->to())]);
+        return response()->json(['data' => $stats->places($request->from(), $request->to())]);
     }
 
     public function visits(StatsVisitsRequest $request, VisitStats $stats): JsonResponse

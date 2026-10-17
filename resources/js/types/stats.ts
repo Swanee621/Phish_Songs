@@ -7,13 +7,16 @@ export type StatsBounds = {
     unresolved: number;
 };
 
-export type HeatPoint = {
+export type PlacePoint = {
+    id: number;
     lat: number;
     lng: number;
     count: number;
     city: string | null;
     region: string | null;
     country_code: string | null;
+    /** ISO times of the latest visits in the range, newest first. */
+    recent: string[];
 };
 
 /** One page view. The place fields are null when the address was unplaced. */

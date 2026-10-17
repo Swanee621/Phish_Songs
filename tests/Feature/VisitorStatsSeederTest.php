@@ -15,7 +15,7 @@ test('the sample traffic gives every part of the stats page something to show', 
         ->and(Location::count())->toBe(13)
         ->and(Visit::count())->toBeGreaterThan(100)
         ->and(Visit::whereNull('location_id')->count())->toBe(6)
-        ->and($stats->heatmap(null, null))->toHaveCount(13)
+        ->and($stats->places(null, null))->toHaveCount(13)
         ->and($stats->visits(null, null, 1)['meta']['lastPage'])->toBeGreaterThan(1);
 });
 

@@ -19,7 +19,6 @@ class VisitFactory extends Factory
     public function definition(): array
     {
         return [
-            'visitor_id' => fake()->uuid(),
             'location_id' => Location::factory(),
             'country_code' => 'US',
             'path' => '/',

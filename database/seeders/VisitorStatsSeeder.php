@@ -9,12 +9,10 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Str;
 
 /**
- * Enough made-up traffic to see the stats page working locally: a login, a
- * month of visits spread over real cities, and a few visitors who move
- * between them so the "seen in more than one city" list has something in it.
+ * Enough made-up traffic to see the stats page working locally: a login and
+ * a month of visits spread over real cities.
  */
 class VisitorStatsSeeder extends Seeder
 {
@@ -22,8 +20,7 @@ class VisitorStatsSeeder extends Seeder
 
     protected const DAYS = 30;
 
-    /** Anonymous one-city visitors; the bulk of the heatmap. */
-    protected const LOCAL_VISITORS = 120;
+    protected const VISITS = 400;
 
     /**
      * City, region, region code, country code, lat, lng, and how popular it is
@@ -45,18 +42,6 @@ class VisitorStatsSeeder extends Seeder
         ['Toronto', 'Ontario', 'ON', 'CA', 43.6532, -79.3832, 3],
         ['London', 'England', 'ENG', 'GB', 51.5074, -0.1278, 2],
         ['Berlin', 'Berlin', 'BE', 'DE', 52.5200, 13.4050, 1],
-    ];
-
-    /**
-     * Visitors who turn up in several cities over the month, in order.
-     *
-     * @var array<int, array<int, string>>
-     */
-    protected const TRAVELLERS = [
-        ['Burlington', 'New York', 'Chicago', 'Denver'],
-        ['Boston', 'New York', 'Boston'],
-        ['Los Angeles', 'San Francisco', 'Portland'],
-        ['London', 'New York', 'Atlanta'],
     ];
 
     protected const PATHS = ['/', '/', '/', '/setlist-browser', '/setlist-browser', '/recent-setlists'];
@@ -90,36 +75,13 @@ class VisitorStatsSeeder extends Seeder
         $start = CarbonImmutable::now()->subDays(self::DAYS)->startOfDay();
         $rows = [];
 
-        for ($i = 0; $i < self::LOCAL_VISITORS; $i++) {
-            $visitorId = (string) Str::uuid();
-            $city = $this->weightedCity($weights);
-            $firstDay = random_int(0, self::DAYS - 1);
-
-            // Most people come back a few times, from the same place.
-            foreach (range(1, random_int(1, 5)) as $n) {
-                $day = min(self::DAYS, $firstDay + random_int(0, 6));
-
-                $rows[] = $this->row($visitorId, $locations[$city], $start->addDays($day));
-            }
-        }
-
-        foreach (self::TRAVELLERS as $route) {
-            $visitorId = (string) Str::uuid();
-            $day = random_int(0, 4);
-
-            foreach ($route as $city) {
-                // A couple of visits per stop, then a few days before the next city.
-                foreach (range(1, random_int(1, 3)) as $n) {
-                    $rows[] = $this->row($visitorId, $locations[$city], $start->addDays($day));
-                }
-
-                $day += random_int(3, 7);
-            }
+        for ($i = 0; $i < self::VISITS; $i++) {
+            $rows[] = $this->row($locations[$this->weightedCity($weights)], $start->addDays(random_int(0, self::DAYS)));
         }
 
         // A handful of visits whose address could not be placed.
         foreach (range(1, 6) as $n) {
-            $rows[] = $this->row((string) Str::uuid(), null, $start->addDays(random_int(0, self::DAYS)));
+            $rows[] = $this->row(null, $start->addDays(random_int(0, self::DAYS)));
         }
 
         Visit::query()->insert($rows);
@@ -146,10 +108,9 @@ class VisitorStatsSeeder extends Seeder
     /**
      * @return array<string, mixed>
      */
-    protected function row(string $visitorId, ?Location $location, CarbonImmutable $day): array
+    protected function row(?Location $location, CarbonImmutable $day): array
     {
         return [
-            'visitor_id' => $visitorId,
             'location_id' => $location?->id,
             'country_code' => $location?->country_code,
             'path' => self::PATHS[array_rand(self::PATHS)],

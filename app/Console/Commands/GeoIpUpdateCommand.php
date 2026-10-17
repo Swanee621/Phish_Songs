@@ -92,7 +92,7 @@ class GeoIpUpdateCommand extends Command
      */
     protected function streamToFile(StreamInterface $body, string $path): void
     {
-        $handle = fopen($path, 'wb');
+        $handle = fopen($path, 'wb');0
 
         if ($handle === false) {
             throw new RuntimeException("Could not write to {$path}.");

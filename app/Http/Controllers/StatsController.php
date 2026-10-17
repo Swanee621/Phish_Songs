@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StatsRangeRequest;
+use App\Http\Requests\StatsVisitsRequest;
 use App\Services\Stats\VisitStats;
 use Illuminate\Http\JsonResponse;
 use Inertia\Inertia;
@@ -25,8 +26,8 @@ class StatsController extends Controller
         return response()->json(['data' => $stats->heatmap($request->from(), $request->to())]);
     }
 
-    public function travellers(StatsRangeRequest $request, VisitStats $stats): JsonResponse
+    public function visits(StatsVisitsRequest $request, VisitStats $stats): JsonResponse
     {
-        return response()->json(['data' => $stats->travellers($request->from(), $request->to())]);
+        return response()->json($stats->visits($request->from(), $request->to(), $request->page()));
     }
 }

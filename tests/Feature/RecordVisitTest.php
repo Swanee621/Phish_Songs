@@ -1,14 +1,12 @@
 <?php
 
 use App\Http\Middleware\HandleInertiaRequests;
-use App\Http\Middleware\RecordVisit;
 use App\Models\Location;
 use App\Models\User;
 use App\Models\Visit;
 use App\Services\GeoIp\FakeGeoIpResolver;
 use App\Services\GeoIp\GeoIpResolver;
 use App\Services\GeoIp\GeoLocation;
-use Illuminate\Support\Str;
 
 /*
  * The test client always arrives from 127.0.0.1, so a fake resolver with a
@@ -34,12 +32,10 @@ function burlington(): GeoLocation
     );
 }
 
-test('a page view is recorded against its city and the browser is given a visitor id', function () {
+test('a page view is recorded against its city and nothing is set on the browser', function () {
     placeEveryoneIn(burlington());
 
-    $this->get('/')
-        ->assertOk()
-        ->assertPlainCookie(RecordVisit::COOKIE);
+    $this->get('/')->assertOk()->assertCookieMissing('visitor_id');
 
     expect(Visit::count())->toBe(1)
         ->and(Location::count())->toBe(1);
@@ -47,8 +43,7 @@ test('a page view is recorded against its city and the browser is given a visito
     $visit = Visit::first();
     $location = Location::first();
 
-    expect(Str::isUuid($visit->visitor_id))->toBeTrue()
-        ->and($visit->location_id)->toBe($location->id)
+    expect($visit->location_id)->toBe($location->id)
         ->and($visit->country_code)->toBe('US')
         ->and($visit->path)->toBe('/')
         ->and($location->city)->toBe('Burlington')
@@ -56,16 +51,13 @@ test('a page view is recorded against its city and the browser is given a visito
         ->and($location->longitude)->toBe(-73.2121);
 });
 
-test('a returning visitor keeps their id and does not duplicate the city', function () {
+test('repeat visits from one city do not duplicate the city', function () {
     placeEveryoneIn(burlington());
 
-    $visitorId = (string) Str::uuid();
+    $this->get('/')->assertOk();
+    $this->get('/setlist-browser')->assertOk();
 
-    $this->withUnencryptedCookie(RecordVisit::COOKIE, $visitorId)->get('/')->assertOk();
-    $this->withUnencryptedCookie(RecordVisit::COOKIE, $visitorId)->get('/setlist-browser')->assertOk();
-
-    expect(Visit::pluck('visitor_id')->unique()->all())->toBe([$visitorId])
-        ->and(Visit::pluck('path')->sort()->values()->all())->toBe(['/', '/setlist-browser'])
+    expect(Visit::pluck('path')->sort()->values()->all())->toBe(['/', '/setlist-browser'])
         ->and(Location::count())->toBe(1);
 });
 
@@ -83,7 +75,7 @@ test('the maintainer\'s own addresses are not recorded', function () {
     placeEveryoneIn(burlington());
     config(['services.nightwatch.ignored_ips' => '10.0.0.1, 127.0.0.1']);
 
-    $this->get('/')->assertOk()->assertCookieMissing(RecordVisit::COOKIE);
+    $this->get('/')->assertOk();
 
     expect(Visit::count())->toBe(0);
 });

@@ -40,6 +40,6 @@ Route::middleware('auth')->group(function () {
     Route::prefix('data/stats')->name('data.stats.')->group(function () {
         Route::get('/bounds', [StatsController::class, 'bounds'])->name('bounds');
         Route::get('/heatmap', [StatsController::class, 'heatmap'])->name('heatmap');
-        Route::get('/travellers', [StatsController::class, 'travellers'])->name('travellers');
+        Route::get('/visits', [StatsController::class, 'visits'])->name('visits');
     });
 });

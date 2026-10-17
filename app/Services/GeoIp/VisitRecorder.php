@@ -9,19 +9,18 @@ use Illuminate\Database\QueryException;
 
 /**
  * Turns a request into a stored visit. The address is used for the lookup and
- * then dropped: only the resolved place and the anonymous visitor id persist.
+ * then dropped: only the resolved place persists.
  */
 class VisitRecorder
 {
     public function __construct(protected GeoIpResolver $resolver) {}
 
-    public function record(string $ip, string $visitorId, string $path, CarbonInterface $visitedAt): Visit
+    public function record(string $ip, string $path, CarbonInterface $visitedAt): Visit
     {
         $place = $this->resolver->resolve($ip);
         $location = $place === null ? null : $this->locationFor($place);
 
         return Visit::create([
-            'visitor_id' => $visitorId,
             'location_id' => $location?->id,
             'country_code' => $place?->countryCode,
             'path' => $path,

@@ -5,7 +5,7 @@
     import {
         bounds as boundsRoute,
         heatmap as heatmapRoute,
-        travellers as travellersRoute,
+        visits as visitsRoute,
     } from '@/actions/App/Http/Controllers/StatsController';
     import AppHead from '@/components/AppHead.svelte';
     import RangeSlider, { clampRange } from '@/components/RangeSlider.svelte';
@@ -13,8 +13,8 @@
     import type {
         HeatPoint,
         StatsBounds,
-        Traveller,
-        TravellerStop,
+        VisitRow,
+        VisitsPage,
     } from '@/types/stats';
 
     import 'leaflet/dist/leaflet.css';
@@ -25,15 +25,13 @@
     const heatmapHttp = useHttp<Record<string, never>, { data: HeatPoint[] }>(
         {},
     );
-    const travellersHttp = useHttp<
-        Record<string, never>,
-        { data: Traveller[] }
-    >({});
+    const visitsHttp = useHttp<Record<string, never>, VisitsPage>({});
 
     let bounds = $state<StatsBounds | null>(null);
     let points = $state<HeatPoint[]>([]);
-    let travellers = $state<Traveller[]>([]);
-    let selectedVisitor = $state<string | null>(null);
+    let visits = $state<VisitRow[]>([]);
+    let visitsMeta = $state<VisitsPage['meta'] | null>(null);
+    let selectedVisitId = $state<number | null>(null);
 
     /** Slider handles in days since the epoch; `null` means unbounded. */
     let fromDay = $state<number | null>(null);
@@ -49,14 +47,14 @@
     );
 
     const selected = $derived(
-        travellers.find((row) => row.visitor_id === selectedVisitor) ?? null,
+        visits.find((row) => row.id === selectedVisitId) ?? null,
     );
 
     let mapElement = $state<HTMLDivElement | null>(null);
     let L: typeof Leaflet | null = null;
     let map: Leaflet.Map | null = null;
     let heat: Leaflet.HeatLayer | null = null;
-    let trail: Leaflet.LayerGroup | null = null;
+    let highlight: Leaflet.LayerGroup | null = null;
 
     /** The query the slider currently describes, or nothing when unbounded. */
     const rangeQuery = (): { from?: string; to?: string } => ({
@@ -83,17 +81,23 @@
             },
         });
 
-        travellersHttp.get(travellersRoute.url({ query }), {
-            onSuccess: (response) => {
-                travellers = response.data;
+        loadVisits(1);
+    }
 
-                if (
-                    !travellers.some((row) => row.visitor_id === selectedVisitor)
-                ) {
-                    selectedVisitor = null;
-                }
+    function loadVisits(pageNumber: number) {
+        visitsHttp.get(
+            visitsRoute.url({ query: { ...rangeQuery(), page: pageNumber } }),
+            {
+                onSuccess: (response) => {
+                    visits = response.data;
+                    visitsMeta = response.meta;
+
+                    if (!visits.some((row) => row.id === selectedVisitId)) {
+                        selectedVisitId = null;
+                    }
+                },
             },
-        });
+        );
     }
 
     /**
@@ -104,9 +108,7 @@
     let peakCount = $state(1);
 
     /** Visit counts scaled to 0–1, which is the range the heat layer expects. */
-    const heatPoints = (
-        rows: HeatPoint[],
-    ): Array<[number, number, number]> =>
+    const heatPoints = (rows: HeatPoint[]): Array<[number, number, number]> =>
         rows.map((point) => [
             point.lat,
             point.lng,
@@ -150,7 +152,7 @@
                 1: '#ef4444',
             },
         }).addTo(map);
-        trail = L.layerGroup().addTo(map);
+        highlight = L.layerGroup().addTo(map);
     }
 
     onMount(() => {
@@ -171,7 +173,7 @@
             map?.remove();
             map = null;
             heat = null;
-            trail = null;
+            highlight = null;
         };
     });
 
@@ -198,49 +200,36 @@
         return () => clearTimeout(debounce);
     });
 
-    /** Draws the selected visitor's path through their cities. */
+    /** Marks the selected visit's city on the map. */
     $effect(() => {
         const row = selected;
 
-        if (!L || !map || !trail) {
+        if (!L || !map || !highlight) {
             return;
         }
 
-        trail.clearLayers();
+        highlight.clearLayers();
 
-        if (!row) {
+        if (!row || row.lat === null || row.lng === null) {
             return;
         }
 
-        const latLngs = row.stops.map(
-            (stop) => [stop.lat, stop.lng] as [number, number],
-        );
+        L.circleMarker([row.lat, row.lng], {
+            radius: 8,
+            color: '#1d4ed8',
+            fillColor: '#ffffff',
+            fillOpacity: 1,
+            weight: 2,
+        })
+            .bindTooltip(placeLabel(row))
+            .addTo(highlight);
 
-        const line = L.polyline(latLngs, {
-            color: '#2563eb',
-            weight: 3,
-            opacity: 0.8,
-        }).addTo(trail);
-
-        row.stops.forEach((stop, index) => {
-            L!.circleMarker([stop.lat, stop.lng], {
-                radius: 7,
-                color: '#1d4ed8',
-                fillColor: '#ffffff',
-                fillOpacity: 1,
-                weight: 2,
-            })
-                .bindTooltip(`${index + 1}. ${stopLabel(stop)}`)
-                .addTo(trail!);
-        });
-
-        map.fitBounds(line.getBounds(), { padding: [40, 40], maxZoom: 8 });
+        map.panTo([row.lat, row.lng]);
     });
 
-    const stopLabel = (stop: TravellerStop | HeatPoint): string =>
-        [stop.city, stop.region, stop.country_code]
-            .filter(Boolean)
-            .join(', ') || 'Unknown';
+    const placeLabel = (row: VisitRow | HeatPoint): string =>
+        [row.city, row.region, row.country_code].filter(Boolean).join(', ') ||
+        'Unknown';
 
     const formatDate = (iso: string): string =>
         new Date(iso).toLocaleString(undefined, {
@@ -249,6 +238,9 @@
         });
 
     const tileClasses = 'rounded-lg border bg-card p-3 text-card-foreground';
+
+    const outlineButtonClasses =
+        'inline-flex h-10 items-center justify-center gap-2 rounded-md border border-input bg-background px-4 text-sm font-medium whitespace-nowrap transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 md:h-8 md:px-3 md:text-xs';
 </script>
 
 <AppHead title="Visitor Stats" />
@@ -258,11 +250,11 @@
         <h1 class="text-2xl font-semibold">Visitor Stats</h1>
         <p class="text-sm text-muted-foreground">
             Page views by approximate city. No addresses are kept — only the
-            place they resolved to and a random per-browser id.
+            place they resolved to. Nothing ties one visit to another.
         </p>
     </div>
 
-    <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <div class="grid grid-cols-3 gap-3">
         <div class={tileClasses}>
             <p class="text-xs text-muted-foreground">Visits in range</p>
             <p class="text-2xl font-semibold tabular-nums">{visitsInRange}</p>
@@ -271,12 +263,6 @@
             <p class="text-xs text-muted-foreground">Visits total</p>
             <p class="text-2xl font-semibold tabular-nums">
                 {bounds?.visits ?? '—'}
-            </p>
-        </div>
-        <div class={tileClasses}>
-            <p class="text-xs text-muted-foreground">Unique visitors</p>
-            <p class="text-2xl font-semibold tabular-nums">
-                {bounds?.visitors ?? '—'}
             </p>
         </div>
         <div class={tileClasses}>
@@ -314,59 +300,90 @@
     ></div>
 
     <div class="space-y-2">
-        <h2 class="text-lg font-semibold">Seen in more than one city</h2>
+        <div class="flex items-baseline justify-between gap-2">
+            <h2 class="text-lg font-semibold">Visits</h2>
+            {#if visitsMeta && visitsMeta.total > 0}
+                <span class="text-sm text-muted-foreground tabular-nums">
+                    {visitsMeta.total} in range
+                </span>
+            {/if}
+        </div>
 
-        {#if travellersHttp.processing && travellers.length === 0}
+        {#if visitsHttp.processing && visits.length === 0}
             <p class="text-sm text-muted-foreground">Loading…</p>
-        {:else if travellers.length === 0}
+        {:else if visits.length === 0}
             <p class="text-sm text-muted-foreground">
-                No visitor has turned up in two different cities in this
-                range.
+                No visits in this range.
             </p>
         {:else}
             <p class="text-sm text-muted-foreground">
-                Select a row to trace the visitor's path on the map.
+                Select a row to point out its city on the map.
             </p>
             <div class="overflow-x-auto rounded-lg border">
                 <table class="w-full text-sm">
                     <thead class="bg-muted/50 text-left text-muted-foreground">
                         <tr>
-                            <th class="px-3 py-2 font-medium">Visitor</th>
-                            <th class="px-3 py-2 font-medium">Cities</th>
-                            <th class="px-3 py-2 font-medium">First seen</th>
-                            <th class="px-3 py-2 font-medium">Last seen</th>
+                            <th class="px-3 py-2 font-medium">When</th>
+                            <th class="px-3 py-2 font-medium">City</th>
+                            <th class="px-3 py-2 font-medium">Page</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {#each travellers as row (row.visitor_id)}
+                        {#each visits as row (row.id)}
                             <tr
-                                class="cursor-pointer border-t hover:bg-accent/50 {selectedVisitor ===
-                                row.visitor_id
+                                class="cursor-pointer border-t hover:bg-accent/50 {selectedVisitId ===
+                                row.id
                                     ? 'bg-accent'
                                     : ''}"
                                 onclick={() =>
-                                    (selectedVisitor =
-                                        selectedVisitor === row.visitor_id
+                                    (selectedVisitId =
+                                        selectedVisitId === row.id
                                             ? null
-                                            : row.visitor_id)}
+                                            : row.id)}
                             >
-                                <td class="px-3 py-2 font-mono text-xs">
-                                    {row.visitor_id.slice(0, 8)}
+                                <td class="px-3 py-2 whitespace-nowrap">
+                                    {formatDate(row.visited_at)}
                                 </td>
                                 <td class="px-3 py-2">
-                                    {row.stops.map(stopLabel).join(' → ')}
+                                    {placeLabel(row)}
                                 </td>
-                                <td class="px-3 py-2 whitespace-nowrap">
-                                    {formatDate(row.first_seen)}
-                                </td>
-                                <td class="px-3 py-2 whitespace-nowrap">
-                                    {formatDate(row.last_seen)}
+                                <td class="px-3 py-2 font-mono text-xs">
+                                    {row.path}
                                 </td>
                             </tr>
                         {/each}
                     </tbody>
                 </table>
             </div>
+
+            {#if visitsMeta && visitsMeta.lastPage > 1}
+                <nav
+                    aria-label="Visit pages"
+                    class="flex items-center justify-between gap-2"
+                >
+                    <button
+                        type="button"
+                        disabled={visitsMeta.page === 1 ||
+                            visitsHttp.processing}
+                        onclick={() => loadVisits(visitsMeta!.page - 1)}
+                        class={outlineButtonClasses}
+                    >
+                        Previous
+                    </button>
+                    <span class="text-sm text-muted-foreground">
+                        Page {visitsMeta.page} of {visitsMeta.lastPage}
+                    </span>
+                    <button
+                        type="button"
+                        disabled={visitsMeta.page === visitsMeta.lastPage ||
+                            visitsHttp.processing}
+                        onclick={() => loadVisits(visitsMeta!.page + 1)}
+                        class={outlineButtonClasses}
+                    >
+                        Next
+                    </button>
+                </nav>
+            {/if}
         {/if}
     </div>
 </div>

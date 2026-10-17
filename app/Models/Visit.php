@@ -9,12 +9,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 
 /**
- * One page view by an anonymous visitor. The visitor id is a random cookie
- * value, and the client address is discarded once it has been resolved to a
- * {@see Location}.
+ * One page view by an anonymous visitor. The client address is discarded once
+ * it has been resolved to a {@see Location}; nothing ties one visit to another.
  *
  * @property int $id
- * @property string $visitor_id
  * @property int|null $location_id
  * @property string|null $country_code
  * @property string $path

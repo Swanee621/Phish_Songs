@@ -16,7 +16,7 @@ test('the sample traffic gives every part of the stats page something to show', 
         ->and(Visit::count())->toBeGreaterThan(100)
         ->and(Visit::whereNull('location_id')->count())->toBe(6)
         ->and($stats->heatmap(null, null))->toHaveCount(13)
-        ->and($stats->travellers(null, null))->toHaveCount(4);
+        ->and($stats->visits(null, null, 1)['meta']['lastPage'])->toBeGreaterThan(1);
 });
 
 test('the sample traffic can be seeded twice without duplicating cities or the login', function () {

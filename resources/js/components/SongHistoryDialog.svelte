@@ -109,6 +109,21 @@
 
     const tourRows = $derived(tourPerformances ?? fetchedTourPerformances);
 
+    /**
+     * The history with the highlighted performances taken out. The server
+     * already leaves out a single `tourId`, but a caller highlighting several
+     * tours passes none, so their rows would otherwise come back underneath.
+     */
+    const visibleRecentPerformances = $derived.by(() => {
+        const highlighted = new Set(
+            tourRows.map((row) => `${row.showid}-${row.position}`),
+        );
+
+        return recentPerformances.filter(
+            (row) => !highlighted.has(`${row.showid}-${row.position}`),
+        );
+    });
+
     const catalog = $derived(
         catalogEntry !== undefined
             ? catalogEntry
@@ -428,8 +443,8 @@
                 </h3>
                 {#if recentPerformancesLoading}
                     <p class="text-sm text-muted-foreground">Loading…</p>
-                {:else if recentPerformances.length}
-                    {#each recentPerformances as row (row.showid + '-' + row.position)}
+                {:else if visibleRecentPerformances.length || recentPerformancesHasMore}
+                    {#each visibleRecentPerformances as row (row.showid + '-' + row.position)}
                         {@render performanceBox(row, false)}
                     {/each}
                     {#if recentPerformancesHasMore}
@@ -441,7 +456,9 @@
                         </div>
                     {/if}
                 {:else}
-                    <p class="text-sm text-muted-foreground">New song</p>
+                    <p class="text-sm text-muted-foreground">
+                        {tourRows.length ? 'No other performances' : 'New song'}
+                    </p>
                 {/if}
             </div>
 

@@ -994,13 +994,23 @@
         allSongs?.find((song) => song.slug === dialogSlug) ?? null
     );
 
-    /** Newest first, the way the dialog lists every other performance. */
     /**
-     * The song dialog only calls out a tour's performances when exactly one is
-     * picked; otherwise every performance sits in the plain history list.
+     * The song dialog calls out the performances from the picked tours above
+     * the plain history list. One tour is also excluded server-side by id;
+     * several are left for the dialog to drop from the history itself, since
+     * the one-off "Not Part of a Tour" id is shared across every year.
      */
     const highlightedTour = $derived(pickedTourCount === 1 ? singleTour : null);
 
+    const highlightedTourName = $derived(
+        pickedTourCount === 1
+            ? (singleTour?.tourname ?? null)
+            : pickedTourCount > 1
+              ? `${pickedTourCount} selected tours`
+              : null
+    );
+
+    /** Newest first, the way the dialog lists every other performance. */
     const dialogPerformances = $derived(
         [...tourRows]
             .filter((row) => row.slug === dialogSlug)
@@ -1813,6 +1823,6 @@
     slug={dialogSlug}
     catalogEntry={dialogCatalogEntry}
     tourId={highlightedTour?.tourid ?? null}
-    tourName={highlightedTour?.tourname ?? null}
+    tourName={highlightedTourName}
     tourPerformances={dialogPerformances}
 />

@@ -206,6 +206,35 @@ test('the heading counts shows per year and picked tours', function () {
         ->assertNoJavaScriptErrors();
 });
 
+test('the song dialog highlights performances from every picked tour', function () {
+    $thisYear = (int) date('Y');
+    $song = Song::factory()->create(['song' => 'Shared Song', 'times_played' => 50]);
+
+    foreach (['Spring Run' => '04-01', 'Summer Run' => '07-01', 'Fall Run' => '10-01'] as $tourName => $monthDay) {
+        $tour = Tour::factory()->create(['tourname' => $tourName, 'tourwhen' => $tourName]);
+        $show = Show::factory()->forYear($thisYear)->create([
+            'tourid' => $tour->tourid,
+            'showdate' => "{$thisYear}-{$monthDay}",
+        ]);
+
+        SetlistEntry::factory()->forShow($show, 1)->create([
+            'songid' => $song->songid,
+            'song' => $song->song,
+            'slug' => $song->slug,
+        ]);
+    }
+
+    $page = visit('/');
+
+    $page->click('Fall Run')
+        ->click('Spring Run')
+        ->click('Shared Song')
+        ->assertSee('Performances in 2 selected tours (2)')
+        ->assertSee('Most recent past performances')
+        ->assertSee("{$thisYear}-07-01")
+        ->assertNoJavaScriptErrors();
+});
+
 test('reset filters clears the search box', function () {
     $thisYear = (int) date('Y');
 
